@@ -1,0 +1,101 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add room",
+        "description": "One room is controlled by one TRV (radiator thermostat).",
+        "data": {
+          "name": "Room name",
+          "trv_entity": "TRV thermostat"
+        }
+      },
+      "sensors": {
+        "title": "Sensors",
+        "description": "Extra temperature sensors (the TRV's own temperature is always used) and window/door sensors that block heating when open.",
+        "data": {
+          "lock_entity": "TRV child lock (optional)",
+          "temp_sensors": "Temperature sensors",
+          "window_sensors": "Window / door sensors"
+        }
+      },
+      "reference": {
+        "title": "Reference sensor",
+        "description": "The sensor that best represents how the room feels. It is shown as the room temperature and offset suggestions are relative to it.",
+        "data": {
+          "reference_sensor": "Reference sensor"
+        }
+      },
+      "params": {
+        "title": "Control parameters",
+        "description": "Defaults are fine for most rooms. Gain, hysteresis and vacation temperature can be tuned later from the dashboard.",
+        "data": {
+          "min_boost": "Minimum heating boost above TRV temperature",
+          "stop_margin": "Setpoint below TRV temperature when stopping",
+          "window_delay": "Window open delay before blocking",
+          "min_write_interval": "Minimum time between TRV setpoint changes",
+          "min_setpoint": "Lowest TRV setpoint",
+          "max_setpoint": "Highest TRV setpoint",
+          "stale_timeout": "Ignore sensors not updated for"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This TRV is already used by another room."
+    }
+  },
+  "options": {
+    "step": {
+      "sensors": {
+        "title": "Sensors",
+        "description": "Extra temperature sensors (the TRV's own temperature is always used) and window/door sensors that block heating when open.",
+        "data": {
+          "lock_entity": "TRV child lock (optional)",
+          "temp_sensors": "Temperature sensors",
+          "window_sensors": "Window / door sensors"
+        }
+      },
+      "reference": {
+        "title": "Reference sensor",
+        "description": "The sensor that best represents how the room feels.",
+        "data": {
+          "reference_sensor": "Reference sensor"
+        }
+      },
+      "params": {
+        "title": "Control parameters",
+        "data": {
+          "min_boost": "Minimum heating boost above TRV temperature",
+          "stop_margin": "Setpoint below TRV temperature when stopping",
+          "window_delay": "Window open delay before blocking",
+          "min_write_interval": "Minimum time between TRV setpoint changes",
+          "min_setpoint": "Lowest TRV setpoint",
+          "max_setpoint": "Highest TRV setpoint",
+          "stale_timeout": "Ignore sensors not updated for"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "control_reason": {
+        "name": "Control reason",
+        "state": {
+          "disabled": "Automation disabled",
+          "trv_unavailable": "TRV unavailable",
+          "window_open": "Window open",
+          "vacation": "Vacation",
+          "room_off": "Off",
+          "no_sensors": "No sensors (fail-safe)",
+          "heating": "Heating",
+          "idle": "Idle"
+        }
+      }
+    }
+  },
+  "issues": {
+    "no_sensors": {
+      "title": "{room}: no temperature data",
+      "description": "All temperature sensors of room {room} are unavailable. The TRV is set to the room target as a fail-safe."
+    }
+  }
+}
