@@ -31,7 +31,8 @@ more heat) or **below** it (stop).
 ## Installation
 
 ### HACS (custom repository)
-1. HACS → Integrations → ⋮ → *Custom repositories* → add this repo as *Integration*.
+1. HACS → ⋮ → *Custom repositories* → add `https://github.com/kuch4r/multisensor_heating`
+   as type *Integration*.
 2. Install **Multi-Sensor Heating**, restart Home Assistant.
 
 ### Manual
