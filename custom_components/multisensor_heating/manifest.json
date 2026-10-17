@@ -2,12 +2,12 @@
   "domain": "multisensor_heating",
   "name": "Multi-Sensor Heating",
   "after_dependencies": ["frontend", "http", "recorder", "websocket_api"],
-  "codeowners": [],
+  "codeowners": ["@kuch4r"],
   "config_flow": true,
-  "documentation": "https://github.com/pawelkucharski/multisensor_heating",
+  "documentation": "https://github.com/kuch4r/multisensor_heating",
   "integration_type": "device",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/pawelkucharski/multisensor_heating/issues",
+  "issue_tracker": "https://github.com/kuch4r/multisensor_heating/issues",
   "requirements": [],
   "version": "0.1.0"
 }
