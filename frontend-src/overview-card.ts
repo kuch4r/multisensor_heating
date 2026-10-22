@@ -7,6 +7,7 @@ export interface OverviewConfig {
   title?: string;
   rooms?: string[];
   tap_action?: "more-info" | "navigate" | "none";
+  show_vacation_toggle?: boolean;
 }
 
 export class OverviewCard extends LitElement {
@@ -60,8 +61,15 @@ export class OverviewCard extends LitElement {
 
   protected render() {
     if (!this._config || !this.hass) return nothing;
+    const showVacation = this._config.show_vacation_toggle !== false && !!this._rooms?.length;
     return html`
-      <ha-card .header=${this._config.title}>
+      <ha-card>
+        ${this._config.title || showVacation
+          ? html`<div class="header">
+              <span class="title">${this._config.title ?? ""}</span>
+              ${showVacation ? this._vacationToggle() : nothing}
+            </div>`
+          : nothing}
         <div class="grid">
           ${this._error
             ? html`<div class="msg">${this._error}</div>`
@@ -73,6 +81,36 @@ export class OverviewCard extends LitElement {
         </div>
       </ha-card>
     `;
+  }
+
+  private _climates(): string[] {
+    return (this._rooms ?? []).map((r) => r.entities.climate).filter((id): id is string => !!id);
+  }
+
+  private _vacationToggle() {
+    const climates = this._climates();
+    const away = climates.filter((id) => this.hass.states[id]?.attributes.preset_mode === "away").length;
+    const all = away === climates.length;
+    const label = all ? "Vacation: all rooms" : away ? `Vacation: ${away}/${climates.length} rooms` : "Vacation";
+    return html`<button
+      class="vacation ${all ? "on" : away ? "partial" : ""}"
+      title=${all ? "Turn vacation off in all rooms" : "Turn vacation on in all rooms"}
+      @click=${() => this._setVacation(!all)}
+    >
+      <ha-icon icon="mdi:beach"></ha-icon>${label}
+    </button>`;
+  }
+
+  private _setVacation(on: boolean): void {
+    const climates = this._climates();
+    const question = on
+      ? `Turn on vacation mode in all ${climates.length} rooms? TRVs will hold the vacation temperature.`
+      : "Turn off vacation mode in all rooms and resume normal control?";
+    if (!climates.length || !window.confirm(question)) return;
+    void this.hass.callService("climate", "set_preset_mode", {
+      entity_id: climates,
+      preset_mode: on ? "away" : "none",
+    });
   }
 
   private _tile(room: RoomInfo) {
@@ -142,6 +180,40 @@ export class OverviewCard extends LitElement {
   }
 
   static styles = css`
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 16px 16px 0;
+    }
+    .title {
+      font-size: 24px;
+      font-weight: 400;
+    }
+    .vacation {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 18px;
+      padding: 6px 12px 6px 8px;
+      background: none;
+      color: var(--primary-text-color);
+      font: inherit;
+      font-size: 0.9em;
+      cursor: pointer;
+      --mdc-icon-size: 18px;
+    }
+    .vacation.on,
+    .vacation.partial {
+      border-color: #8e44ad;
+      color: #8e44ad;
+    }
+    .vacation.on {
+      background: color-mix(in srgb, #8e44ad 12%, transparent);
+    }
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

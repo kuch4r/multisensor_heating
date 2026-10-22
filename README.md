@@ -66,7 +66,8 @@ strategy:
 ```
 
 This creates an **Overview** page with a tile per room. Tapping a tile opens the room page.
-New rooms appear automatically.
+New rooms appear automatically. The **Vacation** button in the overview header turns vacation
+mode on or off in all rooms at once. It shows a partial count when only some rooms are on vacation.
 
 **Individual cards.** Add *Multi-Sensor Heating: Overview* or *Multi-Sensor Heating: Room*
 from the card picker, or in YAML:
@@ -75,6 +76,7 @@ from the card picker, or in YAML:
 type: custom:multisensor-heating-overview-card
 title: Heating
 tap_action: more-info   # more-info | navigate | none
+show_vacation_toggle: true
 ---
 type: custom:multisensor-heating-room-card
 entry_id: <config entry id>   # or: room: Living room

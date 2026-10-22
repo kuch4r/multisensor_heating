@@ -16,7 +16,13 @@ export class HeatingDashboardStrategy extends HTMLElement {
           path: "overview",
           icon: "mdi:radiator",
           type: "panel",
-          cards: [{ type: "custom:multisensor-heating-overview-card", tap_action: "navigate" }],
+          cards: [
+            {
+              type: "custom:multisensor-heating-overview-card",
+              title: config.title ?? "Heating",
+              tap_action: "navigate",
+            },
+          ],
         },
         ...rooms.map((room) => ({
           title: room.name,

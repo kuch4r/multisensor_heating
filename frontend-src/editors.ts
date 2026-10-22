@@ -5,6 +5,7 @@ import type { HomeAssistant, RoomInfo } from "./types";
 const LABELS: Record<string, string> = {
   title: "Title",
   tap_action: "Tap on a room",
+  show_vacation_toggle: "Show vacation toggle for all rooms",
   entry_id: "Room",
   show_chart: "Show history chart",
   hours: "Default chart range",
@@ -63,6 +64,7 @@ export class OverviewCardEditor extends BaseEditor {
           },
         },
       },
+      { name: "show_vacation_toggle", default: true, selector: { boolean: {} } },
     ];
   }
 }

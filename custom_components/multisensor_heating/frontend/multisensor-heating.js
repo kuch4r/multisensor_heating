@@ -623,6 +623,7 @@ function Fe(e) {
 var Ie = {
 	title: "Title",
 	tap_action: "Tap on a room",
+	show_vacation_toggle: "Show vacation toggle for all rooms",
 	entry_id: "Room",
 	show_chart: "Show history chart",
 	hours: "Default chart range"
@@ -649,29 +650,37 @@ var Ie = {
 	}
 }, Re = class extends Le {
 	schema() {
-		return [{
-			name: "title",
-			selector: { text: {} }
-		}, {
-			name: "tap_action",
-			selector: { select: {
-				mode: "dropdown",
-				options: [
-					{
-						value: "more-info",
-						label: "Open room thermostat dialog"
-					},
-					{
-						value: "navigate",
-						label: "Navigate to room view (strategy dashboard)"
-					},
-					{
-						value: "none",
-						label: "Nothing"
-					}
-				]
-			} }
-		}];
+		return [
+			{
+				name: "title",
+				selector: { text: {} }
+			},
+			{
+				name: "tap_action",
+				selector: { select: {
+					mode: "dropdown",
+					options: [
+						{
+							value: "more-info",
+							label: "Open room thermostat dialog"
+						},
+						{
+							value: "navigate",
+							label: "Navigate to room view (strategy dashboard)"
+						},
+						{
+							value: "none",
+							label: "Nothing"
+						}
+					]
+				} }
+			},
+			{
+				name: "show_vacation_toggle",
+				default: !0,
+				selector: { boolean: {} }
+			}
+		];
 	}
 }, ze = class extends Le {
 	schema() {
@@ -1045,13 +1054,39 @@ var Be = class extends V {
 		}
 	}
 	render() {
-		return !this._config || !this.hass ? P : j`
-      <ha-card .header=${this._config.title}>
+		if (!this._config || !this.hass) return P;
+		let e = this._config.show_vacation_toggle !== !1 && !!this._rooms?.length;
+		return j`
+      <ha-card>
+        ${this._config.title || e ? j`<div class="header">
+              <span class="title">${this._config.title ?? ""}</span>
+              ${e ? this._vacationToggle() : P}
+            </div>` : P}
         <div class="grid">
           ${this._error ? j`<div class="msg">${this._error}</div>` : this._rooms ? this._rooms.length === 0 ? j`<div class="msg">No rooms configured yet. Add one in Settings → Devices & services.</div>` : this._rooms.map((e) => this._tile(e)) : j`<div class="msg">Loading…</div>`}
         </div>
       </ha-card>
     `;
+	}
+	_climates() {
+		return (this._rooms ?? []).map((e) => e.entities.climate).filter((e) => !!e);
+	}
+	_vacationToggle() {
+		let e = this._climates(), t = e.filter((e) => this.hass.states[e]?.attributes.preset_mode === "away").length, n = t === e.length, r = n ? "Vacation: all rooms" : t ? `Vacation: ${t}/${e.length} rooms` : "Vacation";
+		return j`<button
+      class="vacation ${n ? "on" : t ? "partial" : ""}"
+      title=${n ? "Turn vacation off in all rooms" : "Turn vacation on in all rooms"}
+      @click=${() => this._setVacation(!n)}
+    >
+      <ha-icon icon="mdi:beach"></ha-icon>${r}
+    </button>`;
+	}
+	_setVacation(e) {
+		let t = this._climates(), n = e ? `Turn on vacation mode in all ${t.length} rooms? TRVs will hold the vacation temperature.` : "Turn off vacation mode in all rooms and resume normal control?";
+		t.length && window.confirm(n) && this.hass.callService("climate", "set_preset_mode", {
+			entity_id: t,
+			preset_mode: e ? "away" : "none"
+		});
 	}
 	_tile(e) {
 		let t = this.hass, n = e.entities.climate, r = n ? t.states[n] : void 0, i = q[Me(t, e)] ?? q.unknown, a = W(t, n, "current_temperature"), o = W(t, n, "temperature"), s = W(t, e.trv_entity, "current_temperature"), c = W(t, e.trv_entity, "temperature"), l = Ne(t, e), u = e.entities.automation && t.states[e.entities.automation]?.state === "off", d = e.lock_entity && t.states[e.lock_entity]?.state === "locked", f = a != null && o != null ? a - o : void 0;
@@ -1097,6 +1132,40 @@ var Be = class extends V {
 		this._config.tap_action === "navigate" ? Pe(`/${window.location.pathname.split("/").filter(Boolean)[0] ?? "lovelace"}/${Ae(e.name)}`) : this._config.tap_action !== "none" && e.entities.climate && J(this, "hass-more-info", { entityId: e.entities.climate });
 	}
 	static styles = o`
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 16px 16px 0;
+    }
+    .title {
+      font-size: 24px;
+      font-weight: 400;
+    }
+    .vacation {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 18px;
+      padding: 6px 12px 6px 8px;
+      background: none;
+      color: var(--primary-text-color);
+      font: inherit;
+      font-size: 0.9em;
+      cursor: pointer;
+      --mdc-icon-size: 18px;
+    }
+    .vacation.on,
+    .vacation.partial {
+      border-color: #8e44ad;
+      color: #8e44ad;
+    }
+    .vacation.on {
+      background: color-mix(in srgb, #8e44ad 12%, transparent);
+    }
     .grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -1824,6 +1893,7 @@ var Be = class extends V {
 				type: "panel",
 				cards: [{
 					type: "custom:multisensor-heating-overview-card",
+					title: e.title ?? "Heating",
 					tap_action: "navigate"
 				}]
 			}, ...n.map((e) => ({
