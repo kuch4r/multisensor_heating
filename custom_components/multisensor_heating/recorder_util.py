@@ -15,7 +15,8 @@ def state_temperature(state: State | None) -> float | None:
         return None
     raw = (
         state.attributes.get("current_temperature")
-        if state.domain == "climate"
+        # Recorder history returns LazyState objects, which have no `.domain`.
+        if state.entity_id.startswith("climate.")
         else state.state
     )
     try:

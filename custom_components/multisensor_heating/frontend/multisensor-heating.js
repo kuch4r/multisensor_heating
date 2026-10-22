@@ -1238,7 +1238,8 @@ var Be = class extends V {
 		_room: { state: !0 },
 		_history: { state: !0 },
 		_hours: { state: !0 },
-		_error: { state: !0 }
+		_error: { state: !0 },
+		_historyError: { state: !0 }
 	};
 	_loading = !1;
 	_timer;
@@ -1283,9 +1284,9 @@ var Be = class extends V {
 	}
 	async _loadHistory() {
 		if (this._room && this._config.show_chart) try {
-			this._history = await ke(this.hass, this._room.entry_id, this._hours);
-		} catch {
-			this._history = void 0;
+			this._history = await ke(this.hass, this._room.entry_id, this._hours), this._historyError = void 0;
+		} catch (e) {
+			this._history = void 0, this._historyError = e.message ?? String(e);
 		}
 	}
 	_setHours(e) {
@@ -1497,7 +1498,7 @@ var Be = class extends V {
               </button>`)}
           </span>
         </div>
-        <multisensor-heating-chart .history=${this._history} .room=${e}></multisensor-heating-chart>
+        ${this._historyError ? j`<div class="msg">Could not load history: ${this._historyError}</div>` : j`<multisensor-heating-chart .history=${this._history} .room=${e}></multisensor-heating-chart>`}
       </div>
     `;
 	}

@@ -43,9 +43,11 @@ export class RoomCard extends LitElement {
     _history: { state: true },
     _hours: { state: true },
     _error: { state: true },
+    _historyError: { state: true },
   };
 
   declare hass: HomeAssistant;
+  declare _historyError?: string;
   declare _config: RoomCardConfig;
   declare _room?: RoomInfo;
   declare _history?: RoomHistory;
@@ -108,8 +110,10 @@ export class RoomCard extends LitElement {
     if (!this._room || !this._config.show_chart) return;
     try {
       this._history = await getHistory(this.hass, this._room.entry_id, this._hours);
-    } catch {
+      this._historyError = undefined;
+    } catch (err) {
       this._history = undefined;
+      this._historyError = (err as Error).message ?? String(err);
     }
   }
 
@@ -357,7 +361,9 @@ export class RoomCard extends LitElement {
             )}
           </span>
         </div>
-        <multisensor-heating-chart .history=${this._history} .room=${room}></multisensor-heating-chart>
+        ${this._historyError
+          ? html`<div class="msg">Could not load history: ${this._historyError}</div>`
+          : html`<multisensor-heating-chart .history=${this._history} .room=${room}></multisensor-heating-chart>`}
       </div>
     `;
   }
