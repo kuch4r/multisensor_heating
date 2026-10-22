@@ -2,74 +2,16 @@
 
 from datetime import timedelta
 
-import pytest
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    async_fire_time_changed,
-    async_mock_service,
-)
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.multisensor_heating.const import DEFAULT_PARAMS, DOMAIN
 
-TRV = "climate.living_trv"
-HIGH = "sensor.living_high"
-WINDOW = "binary_sensor.living_window"
-LOCK = "lock.living_trv_lock"
-
-
-def set_trv(hass, current=19.0, target=19.0, mode="heat"):
-    hass.states.async_set(
-        TRV, mode,
-        {"current_temperature": current, "temperature": target, "hvac_modes": ["off", "heat", "auto"]},
-    )
-
-
-@pytest.fixture
-async def calls(hass: HomeAssistant):
-    # Set up real domains first so the mocks below override their services.
-    for domain in ("climate", "lock"):
-        assert await async_setup_component(hass, domain, {})
-    return {
-        "temp": async_mock_service(hass, "climate", "set_temperature"),
-        "hvac": async_mock_service(hass, "climate", "set_hvac_mode"),
-        "lock": async_mock_service(hass, "lock", "lock"),
-        "unlock": async_mock_service(hass, "lock", "unlock"),
-    }
-
-
-@pytest.fixture
-async def entry(hass: HomeAssistant, calls) -> MockConfigEntry:
-    set_trv(hass)
-    hass.states.async_set(HIGH, "20.0", {"device_class": "temperature", "friendly_name": "High"})
-    hass.states.async_set(WINDOW, "off", {"device_class": "window"})
-    hass.states.async_set(LOCK, "unlocked")
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Living",
-        unique_id=TRV,
-        data={"name": "Living", "trv_entity": TRV},
-        options={
-            **DEFAULT_PARAMS,
-            "temp_sensors": [HIGH],
-            "window_sensors": [WINDOW],
-            "reference_sensor": HIGH,
-            "lock_entity": LOCK,
-        },
-    )
-    entry.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-    return entry
-
-
-def eid(hass, domain, key, entry):
-    return er.async_get(hass).async_get_entity_id(domain, DOMAIN, f"{entry.entry_id}_{key}")
+from .common import HIGH, LOCK, TRV, WINDOW, eid, set_trv
 
 
 async def test_config_flow(hass: HomeAssistant, calls):
@@ -120,10 +62,17 @@ async def test_heats_when_high_sensor_cold(hass: HomeAssistant, entry, calls):
     assert hass.states.get(eid(hass, "sensor", "control_reason", entry)).state == "heating"
 
 
-async def test_stops_when_sensor_hot(hass: HomeAssistant, entry, calls):
+async def settle(hass: HomeAssistant, freezer) -> None:
+    """Let the 1 s state-change debounce run its trailing evaluation."""
+    freezer.tick(timedelta(seconds=2))
+    async_fire_time_changed(hass, dt_util.utcnow())
+    await hass.async_block_till_done()
+
+
+async def test_stops_when_sensor_hot(hass: HomeAssistant, freezer, entry, calls):
     set_trv(hass, current=19.0, target=21.0)
     hass.states.async_set(HIGH, "21.5", {"device_class": "temperature"})
-    await hass.async_block_till_done()
+    await settle(hass, freezer)
     assert calls["temp"][-1].data["temperature"] == 17.0
     assert hass.states.get(eid(hass, "binary_sensor", "heating", entry)).state == "off"
 
@@ -150,7 +99,7 @@ async def test_window_open_blocks_after_delay(hass: HomeAssistant, entry, calls,
 
     set_trv(hass, mode="off")
     hass.states.async_set(WINDOW, "off", {"device_class": "window"})
-    await hass.async_block_till_done()
+    await settle(hass, freezer)
     assert calls["hvac"][-1].data == {"entity_id": TRV, "hvac_mode": "heat"}
 
 

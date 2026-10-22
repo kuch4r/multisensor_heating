@@ -8,8 +8,10 @@ from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from .const import DOMAIN
 from .coordinator import RoomController
 from .entity import RoomEntity
 
@@ -64,6 +66,15 @@ class SensorNumber(RoomEntity, NumberEntity):
         return attrs
 
     async def async_set_native_value(self, value: float) -> None:
+        current = self.controller.sensor_settings[self.sensor_id]
+        low = value if self.key == "min" else current["min"]
+        high = value if self.key == "max" else current["max"]
+        if low > high:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="invalid_range",
+                translation_placeholders={"min": f"{low:g}", "max": f"{high:g}"},
+            )
         await self.controller.async_set_sensor_setting(self.sensor_id, self.key, value)
 
 

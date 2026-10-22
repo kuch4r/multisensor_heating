@@ -14,4 +14,7 @@ Home Assistant custom integration `multisensor_heating` plus bundled Lit dashboa
 npm run typecheck && npm run build                   # rebuild bundle after any frontend-src change
 ```
 - In integration tests, set up the `climate`/`lock` domains before `async_mock_service`. Otherwise the real services replace the mocks.
+- Shared test helpers live in `tests/common.py` (`setup_room`, `flaky_service`, ...). The fixtures `calls` and `entry` are in `tests/conftest.py`.
+- State changes are debounced (1 s, first call immediate). When a test makes several changes back to back, advance the clock about 2 s before asserting. Request `freezer` before `entry` so the room is set up on the frozen clock.
+- Recorder-backed tests must override the autouse fixture so that `recorder_mock` comes first (see `tests/test_history.py`).
 - `strings.json` must be copied to `translations/en.json` after edits.

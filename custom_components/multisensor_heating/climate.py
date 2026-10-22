@@ -18,7 +18,14 @@ from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import REASON_HEATING, REASON_IDLE, REASON_NO_SENSORS, REASON_VACATION
+from .const import (
+    REASON_DISABLED,
+    REASON_HEATING,
+    REASON_IDLE,
+    REASON_NO_SENSORS,
+    REASON_TRV_UNAVAILABLE,
+    REASON_VACATION,
+)
 from .entity import RoomEntity
 
 
@@ -76,6 +83,13 @@ class RoomClimate(RoomEntity, ClimateEntity):
             return HVACAction.HEATING
         if d.reason in (REASON_IDLE, REASON_VACATION, REASON_NO_SENSORS):
             return HVACAction.IDLE
+        if d.reason in (REASON_DISABLED, REASON_TRV_UNAVAILABLE):
+            # The TRV runs on its own; report what it is actually doing.
+            trv = self.hass.states.get(self.controller.trv)
+            try:
+                return HVACAction(trv.attributes.get("hvac_action")) if trv else HVACAction.IDLE
+            except ValueError:
+                return HVACAction.IDLE
         return HVACAction.OFF
 
     @property

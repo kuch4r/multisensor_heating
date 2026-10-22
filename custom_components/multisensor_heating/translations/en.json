@@ -97,5 +97,10 @@
       "title": "{room}: no temperature data",
       "description": "All temperature sensors of room {room} are unavailable. The TRV is set to the room target as a fail-safe."
     }
+  },
+  "exceptions": {
+    "invalid_range": {
+      "message": "Minimum ({min} °C) must not be higher than maximum ({max} °C)."
+    }
   }
 }

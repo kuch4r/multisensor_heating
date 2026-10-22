@@ -44,14 +44,17 @@ def _sensors_schema(values: dict[str, Any]) -> vol.Schema:
         {
             vol.Optional(CONF_LOCK, description={"suggested_value": values.get(CONF_LOCK)}):
                 selector.EntitySelector(selector.EntitySelectorConfig(domain="lock")),
-            vol.Optional(CONF_TEMP_SENSORS, default=values.get(CONF_TEMP_SENSORS, [])):
+            # suggested_value (not default) so clearing a field really removes the sensors.
+            vol.Optional(CONF_TEMP_SENSORS,
+                         description={"suggested_value": values.get(CONF_TEMP_SENSORS, [])}):
                 selector.EntitySelector(
                     selector.EntitySelectorConfig(
                         domain="sensor", device_class=SensorDeviceClass.TEMPERATURE,
                         multiple=True,
                     )
                 ),
-            vol.Optional(CONF_WINDOW_SENSORS, default=values.get(CONF_WINDOW_SENSORS, [])):
+            vol.Optional(CONF_WINDOW_SENSORS,
+                         description={"suggested_value": values.get(CONF_WINDOW_SENSORS, [])}):
                 selector.EntitySelector(
                     selector.EntitySelectorConfig(
                         domain="binary_sensor",
@@ -107,7 +110,7 @@ class _SensorsStepsMixin:
     async def async_step_sensors(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
             self._values.pop(CONF_LOCK, None)
-            self._values.update(user_input)
+            self._values.update({CONF_TEMP_SENSORS: [], CONF_WINDOW_SENSORS: [], **user_input})
             return await self.async_step_reference()
         return self.async_show_form(step_id="sensors", data_schema=_sensors_schema(self._values))
 

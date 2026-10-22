@@ -1,5 +1,16 @@
 import { LitElement, css, html, nothing } from "lit";
-import { STATUS, fireEvent, fmt, getRooms, navigate, num, openWindows, roomReason, slug } from "./api";
+import {
+  RETRY_MS,
+  STATUS,
+  fireEvent,
+  fmt,
+  getRooms,
+  navigate,
+  num,
+  openWindows,
+  roomReason,
+  slug,
+} from "./api";
 import type { HomeAssistant, RoomInfo } from "./types";
 
 export interface OverviewConfig {
@@ -47,13 +58,15 @@ export class OverviewCard extends LitElement {
   private async _load(): Promise<void> {
     this._loading = true;
     try {
-      const rooms = await getRooms(this.hass);
+      const rooms = await getRooms(this.hass, true);
       const filter = this._config.rooms;
       this._rooms = filter?.length
         ? rooms.filter((r) => filter.includes(r.entry_id) || filter.includes(r.name))
         : rooms;
+      this._error = undefined;
     } catch (err) {
       this._error = `Multi-Sensor Heating not available: ${(err as Error).message ?? err}`;
+      window.setTimeout(() => void this._load(), RETRY_MS);
     } finally {
       this._loading = false;
     }

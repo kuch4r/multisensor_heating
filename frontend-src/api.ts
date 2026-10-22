@@ -2,11 +2,15 @@ import type { HomeAssistant, RoomHistory, RoomInfo } from "./types";
 
 const DOMAIN = "multisensor_heating";
 const ROOMS_TTL_MS = 60_000;
+/** Forced fetches within this window share one request (e.g. several cards on a page). */
+const ROOMS_DEDUPE_MS = 2_000;
+export const RETRY_MS = 10_000;
 let roomsPromise: Promise<RoomInfo[]> | undefined;
 let roomsFetchedAt = 0;
 
 export function getRooms(hass: HomeAssistant, force = false): Promise<RoomInfo[]> {
-  if (!roomsPromise || force || Date.now() - roomsFetchedAt > ROOMS_TTL_MS) {
+  const age = Date.now() - roomsFetchedAt;
+  if (!roomsPromise || age > ROOMS_TTL_MS || (force && age > ROOMS_DEDUPE_MS)) {
     roomsFetchedAt = Date.now();
     roomsPromise = hass.callWS<RoomInfo[]>({ type: `${DOMAIN}/rooms` });
     roomsPromise.catch(() => (roomsPromise = undefined));

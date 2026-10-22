@@ -1,5 +1,6 @@
 import { LitElement, css, html, nothing } from "lit";
 import {
+  RETRY_MS,
   SENSOR_STATUS,
   STATUS,
   fireEvent,
@@ -69,6 +70,7 @@ export class RoomCard extends LitElement {
     this._hours = this._config.hours ?? 24;
     this._room = undefined;
     this._history = undefined;
+    this._error = undefined;
   }
 
   getCardSize(): number {
@@ -86,24 +88,29 @@ export class RoomCard extends LitElement {
   }
 
   protected updated(): void {
+    // After an error, _load() schedules its own retry.
     if (this.hass && !this._room && !this._loading && !this._error) void this._load();
   }
 
   private async _load(): Promise<void> {
     this._loading = true;
     try {
-      const rooms = await getRooms(this.hass);
+      const rooms = await getRooms(this.hass, true);
       const { entry_id, room } = this._config;
       this._room =
         rooms.find((r) => r.entry_id === entry_id || (room && r.name.toLowerCase() === room.toLowerCase())) ??
         (!entry_id && !room ? rooms[0] : undefined);
       if (!this._room) this._error = "Room not found. Pick a room in the card editor.";
-      else await this._loadHistory();
+      else {
+        this._error = undefined;
+        await this._loadHistory();
+      }
     } catch (err) {
       this._error = `Multi-Sensor Heating not available: ${(err as Error).message ?? err}`;
     } finally {
       this._loading = false;
     }
+    if (this._error) window.setTimeout(() => void this._load(), RETRY_MS);
   }
 
   private async _loadHistory(): Promise<void> {

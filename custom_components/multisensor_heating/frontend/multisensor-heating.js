@@ -510,11 +510,12 @@ var Te = B.litElementPolyfillSupport;
 Te?.({ LitElement: V }), (B.litElementVersions ??= []).push("4.2.2");
 //#endregion
 //#region frontend-src/api.ts
-var Ee = "multisensor_heating", De = 6e4, H, Oe = 0;
+var Ee = "multisensor_heating", De = 6e4, Oe = 2e3, ke = 1e4, H, Ae = 0;
 function U(e, t = !1) {
-	return (!H || t || Date.now() - Oe > De) && (Oe = Date.now(), H = e.callWS({ type: `${Ee}/rooms` }), H.catch(() => H = void 0)), H;
+	let n = Date.now() - Ae;
+	return (!H || n > De || t && n > Oe) && (Ae = Date.now(), H = e.callWS({ type: `${Ee}/rooms` }), H.catch(() => H = void 0)), H;
 }
-function ke(e, t, n) {
+function je(e, t, n) {
 	return e.callWS({
 		type: `${Ee}/room_history`,
 		entry_id: t,
@@ -527,7 +528,7 @@ function W(e, t, n) {
 	let i = parseFloat(n ? r.attributes[n] : r.state);
 	return Number.isFinite(i) ? i : void 0;
 }
-var G = (e, t = 1) => e == null || !Number.isFinite(e) ? "–" : e.toFixed(t), K = (e, t = 1) => e == null || !Number.isFinite(e) ? "–" : `${e > 0 ? "+" : ""}${e.toFixed(t)}`, Ae = (e) => e.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "room", q = {
+var G = (e, t = 1) => e == null || !Number.isFinite(e) ? "–" : e.toFixed(t), K = (e, t = 1) => e == null || !Number.isFinite(e) ? "–" : `${e > 0 ? "+" : ""}${e.toFixed(t)}`, Me = (e) => e.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "room", q = {
 	heating: {
 		label: "Heating",
 		color: "var(--state-climate-heat-color, #ff8100)",
@@ -573,7 +574,7 @@ var G = (e, t = 1) => e == null || !Number.isFinite(e) ? "–" : e.toFixed(t), K
 		color: "var(--state-inactive-color, #9e9e9e)",
 		icon: "mdi:help-circle-outline"
 	}
-}, je = {
+}, Ne = {
 	cold: {
 		label: "Cold",
 		color: "var(--info-color, #039be5)",
@@ -595,10 +596,10 @@ var G = (e, t = 1) => e == null || !Number.isFinite(e) ? "–" : e.toFixed(t), K
 		icon: "mdi:help"
 	}
 };
-function Me(e, t) {
+function Pe(e, t) {
 	return (t.entities.climate ? e.states[t.entities.climate] : void 0)?.attributes.reason ?? "unknown";
 }
-function Ne(e, t) {
+function Fe(e, t) {
 	return t.windows.filter((t) => e.states[t]?.state === "on");
 }
 function J(e, t, n = {}) {
@@ -608,10 +609,10 @@ function J(e, t, n = {}) {
 		composed: !0
 	}));
 }
-function Pe(e) {
+function Ie(e) {
 	history.pushState(null, "", e), window.dispatchEvent(new CustomEvent("location-changed", { detail: { replace: !1 } }));
 }
-function Fe(e) {
+function Le(e) {
 	let t = Math.round((Date.now() - new Date(e).getTime()) / 6e4);
 	if (t < 1) return "just now";
 	if (t < 60) return `${t} min`;
@@ -620,14 +621,14 @@ function Fe(e) {
 }
 //#endregion
 //#region frontend-src/editors.ts
-var Ie = {
+var Re = {
 	title: "Title",
 	tap_action: "Tap on a room",
 	show_vacation_toggle: "Show vacation toggle for all rooms",
 	entry_id: "Room",
 	show_chart: "Show history chart",
 	hours: "Default chart range"
-}, Le = class extends V {
+}, ze = class extends V {
 	static properties = {
 		hass: { attribute: !1 },
 		_config: { state: !0 },
@@ -644,11 +645,11 @@ var Ie = {
       .hass=${this.hass}
       .data=${this._config}
       .schema=${this.schema()}
-      .computeLabel=${(e) => Ie[e.name] ?? e.name}
+      .computeLabel=${(e) => Re[e.name] ?? e.name}
       @value-changed=${(e) => J(this, "config-changed", { config: e.detail.value })}
     ></ha-form>`;
 	}
-}, Re = class extends Le {
+}, Be = class extends ze {
 	schema() {
 		return [
 			{
@@ -682,7 +683,7 @@ var Ie = {
 			}
 		];
 	}
-}, ze = class extends Le {
+}, Ve = class extends ze {
 	schema() {
 		return [
 			{
@@ -736,7 +737,7 @@ var Ie = {
 	t: 10,
 	b: 24
 };
-function Q(e, t) {
+function He(e, t) {
 	let n = null;
 	for (let [r, i] of e) {
 		if (r > t) break;
@@ -744,7 +745,7 @@ function Q(e, t) {
 	}
 	return n;
 }
-var Be = class extends V {
+var Ue = class extends V {
 	static properties = {
 		history: { attribute: !1 },
 		room: { attribute: !1 },
@@ -854,7 +855,7 @@ var Be = class extends V {
 			});
 		}, v = this._hover, y = v == null ? [] : r.filter((e) => !e.key.startsWith("targets:")).map((e) => ({
 			l: e,
-			v: Q(e.series, v)
+			v: He(e.series, v)
 		})).filter((e) => e.v != null);
 		return j`
       <div class="legend">
@@ -890,8 +891,8 @@ var Be = class extends V {
 			minute: "2-digit"
 		})}</div>
               ${y.map((e) => j`<div><span class="swatch" style="background:${e.l.color}"></span>${e.l.label}: <b>${e.v.toFixed(1)}°</b></div>`)}
-              ${Q(e.heating, v) === 1 ? j`<div class="heat-text">Heating</div>` : P}
-              ${Q(e.window, v) === 1 ? j`<div class="window-text">Window open</div>` : P}
+              ${He(e.heating, v) === 1 ? j`<div class="heat-text">Heating</div>` : P}
+              ${He(e.window, v) === 1 ? j`<div class="window-text">Window open</div>` : P}
             </div>` : P}
       </div>
     `;
@@ -1016,7 +1017,7 @@ var Be = class extends V {
       color: var(--info-color, #039be5);
     }
   `;
-}, Ve = class extends V {
+}, We = class extends V {
 	static properties = {
 		hass: { attribute: !1 },
 		_config: { state: !0 },
@@ -1045,10 +1046,10 @@ var Be = class extends V {
 	async _load() {
 		this._loading = !0;
 		try {
-			let e = await U(this.hass), t = this._config.rooms;
-			this._rooms = t?.length ? e.filter((e) => t.includes(e.entry_id) || t.includes(e.name)) : e;
+			let e = await U(this.hass, !0), t = this._config.rooms;
+			this._rooms = t?.length ? e.filter((e) => t.includes(e.entry_id) || t.includes(e.name)) : e, this._error = void 0;
 		} catch (e) {
-			this._error = `Multi-Sensor Heating not available: ${e.message ?? e}`;
+			this._error = `Multi-Sensor Heating not available: ${e.message ?? e}`, window.setTimeout(() => void this._load(), ke);
 		} finally {
 			this._loading = !1;
 		}
@@ -1089,7 +1090,7 @@ var Be = class extends V {
 		});
 	}
 	_tile(e) {
-		let t = this.hass, n = e.entities.climate, r = n ? t.states[n] : void 0, i = q[Me(t, e)] ?? q.unknown, a = W(t, n, "current_temperature"), o = W(t, n, "temperature"), s = W(t, e.trv_entity, "current_temperature"), c = W(t, e.trv_entity, "temperature"), l = Ne(t, e), u = e.entities.automation && t.states[e.entities.automation]?.state === "off", d = e.lock_entity && t.states[e.lock_entity]?.state === "locked", f = a != null && o != null ? a - o : void 0;
+		let t = this.hass, n = e.entities.climate, r = n ? t.states[n] : void 0, i = q[Pe(t, e)] ?? q.unknown, a = W(t, n, "current_temperature"), o = W(t, n, "temperature"), s = W(t, e.trv_entity, "current_temperature"), c = W(t, e.trv_entity, "temperature"), l = Fe(t, e), u = e.entities.automation && t.states[e.entities.automation]?.state === "off", d = e.lock_entity && t.states[e.lock_entity]?.state === "locked", f = a != null && o != null ? a - o : void 0;
 		return j`
       <div class="tile" style="--status-color:${i.color}" @click=${() => this._tap(e)}>
         <div class="top">
@@ -1129,7 +1130,7 @@ var Be = class extends V {
 		});
 	}
 	_tap(e) {
-		this._config.tap_action === "navigate" ? Pe(`/${window.location.pathname.split("/").filter(Boolean)[0] ?? "lovelace"}/${Ae(e.name)}`) : this._config.tap_action !== "none" && e.entities.climate && J(this, "hass-more-info", { entityId: e.entities.climate });
+		this._config.tap_action === "navigate" ? Ie(`/${window.location.pathname.split("/").filter(Boolean)[0] ?? "lovelace"}/${Me(e.name)}`) : this._config.tap_action !== "none" && e.entities.climate && J(this, "hass-more-info", { entityId: e.entities.climate });
 	}
 	static styles = o`
     .header {
@@ -1291,7 +1292,7 @@ var Be = class extends V {
       color: var(--info-color, #039be5);
     }
   `;
-}, He = 3e5, Ue = {
+}, Ge = 3e5, Ke = {
 	heating: "At least one sensor is below its target — the TRV setpoint is raised above the TRV's own reading.",
 	idle: "Targets reached (or a sensor is above its upper limit) — the TRV setpoint is kept below the TRV's own reading.",
 	window_open: "A window has been open longer than the delay — the TRV is switched off.",
@@ -1300,7 +1301,7 @@ var Be = class extends V {
 	disabled: "Automation is disabled — the TRV follows its own Salus schedule.",
 	trv_unavailable: "The TRV is unavailable — nothing is changed.",
 	no_sensors: "No temperature data — the TRV is set to the room target as a fail-safe."
-}, We = class extends V {
+}, qe = class extends V {
 	static properties = {
 		hass: { attribute: !1 },
 		_config: { state: !0 },
@@ -1326,13 +1327,13 @@ var Be = class extends V {
 			show_chart: !0,
 			hours: 24,
 			...e
-		}, this._hours = this._config.hours ?? 24, this._room = void 0, this._history = void 0;
+		}, this._hours = this._config.hours ?? 24, this._room = void 0, this._history = void 0, this._error = void 0;
 	}
 	getCardSize() {
 		return 10;
 	}
 	connectedCallback() {
-		super.connectedCallback(), this._timer = window.setInterval(() => void this._loadHistory(), He);
+		super.connectedCallback(), this._timer = window.setInterval(() => void this._loadHistory(), Ge);
 	}
 	disconnectedCallback() {
 		window.clearInterval(this._timer), super.disconnectedCallback();
@@ -1343,17 +1344,18 @@ var Be = class extends V {
 	async _load() {
 		this._loading = !0;
 		try {
-			let e = await U(this.hass), { entry_id: t, room: n } = this._config;
-			this._room = e.find((e) => e.entry_id === t || n && e.name.toLowerCase() === n.toLowerCase()) ?? (!t && !n ? e[0] : void 0), this._room ? await this._loadHistory() : this._error = "Room not found. Pick a room in the card editor.";
+			let e = await U(this.hass, !0), { entry_id: t, room: n } = this._config;
+			this._room = e.find((e) => e.entry_id === t || n && e.name.toLowerCase() === n.toLowerCase()) ?? (!t && !n ? e[0] : void 0), this._room ? (this._error = void 0, await this._loadHistory()) : this._error = "Room not found. Pick a room in the card editor.";
 		} catch (e) {
 			this._error = `Multi-Sensor Heating not available: ${e.message ?? e}`;
 		} finally {
 			this._loading = !1;
 		}
+		this._error && window.setTimeout(() => void this._load(), ke);
 	}
 	async _loadHistory() {
 		if (this._room && this._config.show_chart) try {
-			this._history = await ke(this.hass, this._room.entry_id, this._hours), this._historyError = void 0;
+			this._history = await je(this.hass, this._room.entry_id, this._hours), this._historyError = void 0;
 		} catch (e) {
 			this._history = void 0, this._historyError = e.message ?? String(e);
 		}
@@ -1382,7 +1384,7 @@ var Be = class extends V {
 		if (this._error) return j`<ha-card><div class="pad msg">${this._error}</div></ha-card>`;
 		let e = this._room;
 		if (!e) return j`<ha-card><div class="pad msg">Loading…</div></ha-card>`;
-		let t = this.hass, n = e.entities, r = n.climate ? t.states[n.climate] : void 0, i = Me(t, e), a = q[i] ?? q.unknown, o = W(t, n.climate, "temperature"), s = W(t, n.climate, "current_temperature"), c = r?.state === "heat", l = r?.attributes.preset_mode === "away", u = n.automation ? t.states[n.automation]?.state === "on" : !1, d = n.lock ? t.states[n.lock]?.state === "on" : !1, f = e.sensors.find((e) => e.is_reference)?.name ?? "reference";
+		let t = this.hass, n = e.entities, r = n.climate ? t.states[n.climate] : void 0, i = Pe(t, e), a = q[i] ?? q.unknown, o = W(t, n.climate, "temperature"), s = W(t, n.climate, "current_temperature"), c = r?.state === "heat", l = r?.attributes.preset_mode === "away", u = n.automation ? t.states[n.automation]?.state === "on" : !1, d = n.lock ? t.states[n.lock]?.state === "on" : !1, f = e.sensors.find((e) => e.is_reference)?.name ?? "reference";
 		return j`
       <ha-card style="--status-color:${a.color}">
         <div class="header">
@@ -1434,7 +1436,7 @@ var Be = class extends V {
           </div>
         </div>
 
-        <div class="reason">${Ue[i] ?? ""}</div>
+        <div class="reason">${Ke[i] ?? ""}</div>
         ${this._facts(e)}
         ${this._sensorTable(e)}
         ${this._tuning(e)}
@@ -1455,7 +1457,7 @@ var Be = class extends V {
 			let n = t.states[e], r = n?.state === "on";
 			return j`<div class="fact clickable ${r ? "open" : ""}" @click=${() => this._more(e)}>
             <span class="label"><ha-icon icon=${r ? "mdi:window-open-variant" : "mdi:window-closed-variant"}></ha-icon>${n?.attributes.friendly_name ?? e}</span>
-            <span>${r ? `open ${Fe(n.last_changed)}` : "closed"}</span>
+            <span>${r ? `open ${Le(n.last_changed)}` : "closed"}</span>
           </div>`;
 		})}
       </div>
@@ -1497,7 +1499,7 @@ var Be = class extends V {
     `;
 	}
 	_sensorRow(e, t, n) {
-		let r = this.hass, i = W(r, e.offset), a = W(r, e.min), o = W(r, e.max), s = e.offset ? r.states[e.offset]?.attributes ?? {} : {}, c = s.suggested_offset, l = je[n?.status ?? "unavailable"], u = c != null && i != null ? Math.abs(c - i) : 0;
+		let r = this.hass, i = W(r, e.offset), a = W(r, e.min), o = W(r, e.max), s = e.offset ? r.states[e.offset]?.attributes ?? {} : {}, c = s.suggested_offset, l = Ne[n?.status ?? "unavailable"], u = c != null && i != null ? Math.abs(c - i) : 0;
 		return j`
       <tr>
         <td class="name">
@@ -1881,7 +1883,7 @@ var Be = class extends V {
       color: var(--text-primary-color, #fff);
     }
   `;
-}, Ge = class extends HTMLElement {
+}, Je = class extends HTMLElement {
 	static async generate(e, t) {
 		let n = await U(t, !0);
 		return {
@@ -1898,7 +1900,7 @@ var Be = class extends V {
 				}]
 			}, ...n.map((e) => ({
 				title: e.name,
-				path: Ae(e.name),
+				path: Me(e.name),
 				subview: !0,
 				back_path: "overview",
 				type: "panel",
@@ -1909,12 +1911,12 @@ var Be = class extends V {
 			}))]
 		};
 	}
-}, $ = (e, t) => {
+}, Q = (e, t) => {
 	customElements.get(e) || customElements.define(e, t);
 };
-$("multisensor-heating-chart", Be), $("multisensor-heating-overview-card", Ve), $("multisensor-heating-room-card", We), $("multisensor-heating-overview-card-editor", Re), $("multisensor-heating-room-card-editor", ze), $("ll-strategy-dashboard-multisensor-heating", Ge);
-var Ke = window;
-Ke.customCards = Ke.customCards ?? [], Ke.customCards.push({
+Q("multisensor-heating-chart", Ue), Q("multisensor-heating-overview-card", We), Q("multisensor-heating-room-card", qe), Q("multisensor-heating-overview-card-editor", Be), Q("multisensor-heating-room-card-editor", Ve), Q("ll-strategy-dashboard-multisensor-heating", Je);
+var $ = window;
+$.customCards = $.customCards ?? [], $.customCards.push({
 	type: "multisensor-heating-overview-card",
 	name: "Multi-Sensor Heating: Overview",
 	description: "Status tile for every room controlled by Multi-Sensor Heating.",

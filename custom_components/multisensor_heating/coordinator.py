@@ -5,15 +5,23 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from dataclasses import asdict, fields
-from datetime import timedelta
+from dataclasses import asdict, fields, replace
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import CALLBACK_TYPE, Event, EventStateChangedData, HomeAssistant, callback
+from homeassistant.core import (
+    CALLBACK_TYPE,
+    Event,
+    EventStateChangedData,
+    HomeAssistant,
+    State,
+    callback,
+)
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_state_change_event,
@@ -46,10 +54,12 @@ from .const import (
     DOMAIN,
     EVALUATE_INTERVAL_S,
     REASON_NO_SENSORS,
+    REASON_WINDOW_OPEN,
     STATS_SAMPLE_S,
     STATS_WINDOW_H,
 )
 from .controller import (
+    HVAC_RETRY_S,
     ControlInput,
     ControlState,
     Decision,
@@ -64,6 +74,37 @@ from .stats import DeltaSummary, OffsetStats
 _LOGGER = logging.getLogger(__name__)
 STORAGE_VERSION = 1
 LOCK_RETRY_S = 60.0
+DEBOUNCE_S = 1.0
+
+
+async def async_call_service(
+    hass: HomeAssistant, room: str, domain: str, service: str, data: dict[str, Any]
+) -> bool:
+    """Call a service, log failures; return whether it succeeded."""
+    try:
+        await hass.services.async_call(domain, service, data, blocking=True)
+    except (HomeAssistantError, ValueError) as err:
+        _LOGGER.warning("%s: %s.%s failed: %s", room, domain, service, err)
+        return False
+    return True
+
+
+async def async_hand_over(
+    hass: HomeAssistant, room: str, trv: str, lock: str | None, safe_setpoint: float
+) -> bool:
+    """Return the TRV to its own Salus schedule (or a safe low setpoint) and unlock it."""
+    state = hass.states.get(trv)
+    if state is not None and "auto" in (state.attributes.get("hvac_modes") or []):
+        ok = await async_call_service(
+            hass, room, "climate", "set_hvac_mode", {"entity_id": trv, "hvac_mode": "auto"}
+        )
+    else:
+        ok = await async_call_service(
+            hass, room, "climate", "set_temperature", {"entity_id": trv, "temperature": safe_setpoint}
+        )
+    if lock:
+        await async_call_service(hass, room, "lock", "unlock", {"entity_id": lock})
+    return ok
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "target": DEFAULT_TARGET,
@@ -109,6 +150,11 @@ class RoomController:
         self.stats = OffsetStats(STATS_WINDOW_H * 3600, STATS_SAMPLE_S)
         self._last_sample: float = 0.0
         self._last_lock_attempt: float = 0.0
+        self._last_handover_attempt: float = 0.0
+        self._restored_window_block = False
+        self._debouncer = Debouncer(
+            hass, _LOGGER, cooldown=DEBOUNCE_S, immediate=True, function=self.async_evaluate
+        )
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}"
         )
@@ -132,6 +178,8 @@ class RoomController:
         self.control_state = ControlState(
             **{k: v for k, v in stored.get("control_state", {}).items() if k in names}
         )
+        # A window that blocked heating before a restart keeps blocking while still open.
+        self._restored_window_block = self.control_state.reason == REASON_WINDOW_OPEN
 
         watched = [self.trv, *self.sensor_ids[1:], *self.window_sensors]
         if self.lock_entity:
@@ -147,15 +195,19 @@ class RoomController:
         self.entry.async_create_background_task(
             self.hass, self._async_seed_stats(), f"{DOMAIN}_seed_stats_{self.entry.entry_id}"
         )
+        self._schedule_window_timer()
 
-    async def async_unload(self) -> None:
+    async def async_unload(self, hand_over: bool = False) -> None:
+        """Stop controlling; with ``hand_over`` (room disabled) return the TRV to Salus."""
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
-        if self._window_timer:
-            self._window_timer()
-            self._window_timer = None
-        await self._store.async_save(self._data())
+        self._cancel_window_timer()
+        self._debouncer.async_shutdown()
+        async with self._eval_lock:
+            if hand_over:
+                await self._hand_over_to_trv()
+            await self._store.async_save(self._data())
 
     def _data(self) -> dict[str, Any]:
         return {
@@ -181,18 +233,25 @@ class RoomController:
 
     @callback
     def _handle_state_change(self, event: Event[EventStateChangedData]) -> None:
-        new_state = event.data["new_state"]
-        if (
-            event.data["entity_id"] in self.window_sensors
-            and new_state is not None
-            and new_state.state == STATE_ON
-        ):
-            if self._window_timer:
-                self._window_timer()
-            self._window_timer = async_call_later(
-                self.hass, float(self.params[CONF_WINDOW_DELAY]) + 1, self._handle_window_timer
-            )
-        self.hass.async_create_task(self.async_evaluate())
+        if event.data["entity_id"] in self.window_sensors:
+            self._schedule_window_timer()
+        self._debouncer.async_schedule_call()
+
+    @callback
+    def _cancel_window_timer(self) -> None:
+        if self._window_timer:
+            self._window_timer()
+            self._window_timer = None
+
+    @callback
+    def _schedule_window_timer(self) -> None:
+        """Evaluate exactly when the earliest-opened window reaches the delay."""
+        self._cancel_window_timer()
+        since = self.window_open_since()
+        if since is None:
+            return
+        due = since + float(self.params[CONF_WINDOW_DELAY]) - dt_util.utcnow().timestamp()
+        self._window_timer = async_call_later(self.hass, max(due, 0) + 1, self._handle_window_timer)
 
     async def _handle_window_timer(self, _now: Any = None) -> None:
         self._window_timer = None
@@ -207,16 +266,15 @@ class RoomController:
 
     # ---- inputs ----------------------------------------------------------------------
 
+    def _is_stale(self, state: State, now: datetime) -> bool:
+        return now - state.last_reported > timedelta(minutes=float(self.params[CONF_STALE_TIMEOUT]))
+
     def current_temperatures(self) -> dict[str, float | None]:
         now = dt_util.utcnow()
-        stale = timedelta(minutes=float(self.params[CONF_STALE_TIMEOUT]))
         temps: dict[str, float | None] = {}
         for sid in self.sensor_ids:
             state = self.hass.states.get(sid)
-            temp = state_temperature(state)
-            if state is not None and sid != self.trv and now - state.last_reported > stale:
-                temp = None
-            temps[sid] = temp
+            temps[sid] = None if state is None or self._is_stale(state, now) else state_temperature(state)
         return temps
 
     def window_open_since(self) -> float | None:
@@ -225,18 +283,25 @@ class RoomController:
             for wid in self.window_sensors
             if (state := self.hass.states.get(wid)) is not None and state.state == STATE_ON
         ]
-        return min(opened) if opened else None
+        if not opened:
+            self._restored_window_block = False
+            return None
+        if self._restored_window_block:
+            # Back-dated by 1 s so it already counts as blocked for the caller's `now`.
+            blocked_since = dt_util.utcnow().timestamp() - float(self.params[CONF_WINDOW_DELAY]) - 1
+            return min(*opened, blocked_since)
+        return min(opened)
 
     def _trv_state(self) -> TrvState:
         state = self.hass.states.get(self.trv)
         if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             return TrvState(available=False)
-        attrs = state.attributes
+        stale = self._is_stale(state, dt_util.utcnow())
         return TrvState(
             available=True,
             hvac_mode=state.state,
-            current_temperature=state_temperature(state),
-            target_temperature=attrs.get("temperature"),
+            current_temperature=None if stale else state_temperature(state),
+            target_temperature=state.attributes.get("temperature"),
         )
 
     def room_settings(self) -> RoomSettings:
@@ -283,20 +348,38 @@ class RoomController:
                     state=self.control_state,
                 )
             )
+            state = decision.state
+            wrote = False
             if decision.set_hvac_mode is not None:
+                # A failed hvac request is retried by the controller after HVAC_RETRY_S.
+                wrote = True
                 await self._call("climate", "set_hvac_mode",
                                  {"entity_id": self.trv, "hvac_mode": decision.set_hvac_mode})
             if decision.set_temperature is not None:
-                await self._call("climate", "set_temperature",
-                                 {"entity_id": self.trv, "temperature": decision.set_temperature})
+                wrote = True
+                if not await self._call("climate", "set_temperature",
+                                        {"entity_id": self.trv, "temperature": decision.set_temperature}):
+                    # Retry after HVAC_RETRY_S instead of the full min_write_interval.
+                    retry_at = now - float(self.params[CONF_MIN_WRITE_INTERVAL]) + HVAC_RETRY_S
+                    state = replace(state, last_write=retry_at)
+            if (
+                state.handover_pending
+                and not self.settings["enabled"]
+                and now - self._last_handover_attempt >= HVAC_RETRY_S
+            ):
+                wrote = True
+                state = replace(state, handover_pending=not await self._hand_over_to_trv())
             await self._enforce_lock(now)
             self._update_issue(decision.reason == REASON_NO_SENSORS)
-            if decision.set_hvac_mode or decision.set_temperature is not None:
+            if wrote:
                 _LOGGER.debug("%s: %s -> hvac=%s setpoint=%s", self.name, decision.reason,
                               decision.set_hvac_mode, decision.set_temperature)
             self.decision = decision
-            self.control_state = decision.state
-            self._save()
+            self.control_state = state
+            if wrote:
+                await self._store.async_save(self._data())
+            else:
+                self._save()
         self._notify()
 
     async def _enforce_lock(self, now: float) -> None:
@@ -308,11 +391,8 @@ class RoomController:
         self._last_lock_attempt = now
         await self._call("lock", "lock", {"entity_id": self.lock_entity})
 
-    async def _call(self, domain: str, service: str, data: dict[str, Any]) -> None:
-        try:
-            await self.hass.services.async_call(domain, service, data, blocking=True)
-        except (HomeAssistantError, ValueError) as err:
-            _LOGGER.warning("%s: %s.%s failed: %s", self.name, domain, service, err)
+    async def _call(self, domain: str, service: str, data: dict[str, Any]) -> bool:
+        return await async_call_service(self.hass, self.name, domain, service, data)
 
     def _update_issue(self, active: bool) -> None:
         issue_id = f"no_sensors_{self.entry.entry_id}"
@@ -331,7 +411,10 @@ class RoomController:
         old = self.settings.get(key)
         self.settings[key] = value
         if key == "enabled" and old and not value:
-            await self._hand_over_to_trv()
+            async with self._eval_lock:
+                self.control_state = ControlState(handover_pending=not await self._hand_over_to_trv())
+        elif key == "enabled" and value:
+            self.control_state = replace(self.control_state, handover_pending=False)
         if key == "lock" and self.lock_entity and not value:
             await self._call("lock", "unlock", {"entity_id": self.lock_entity})
         self._save()
@@ -342,14 +425,12 @@ class RoomController:
         self._save()
         await self.async_evaluate()
 
-    async def _hand_over_to_trv(self) -> None:
+    async def _hand_over_to_trv(self) -> bool:
         """Kill switch: return the TRV to its own Salus schedule and unlock it."""
-        state = self.hass.states.get(self.trv)
-        if state is not None and "auto" in (state.attributes.get("hvac_modes") or []):
-            await self._call("climate", "set_hvac_mode", {"entity_id": self.trv, "hvac_mode": "auto"})
-        if self.lock_entity:
-            await self._call("lock", "unlock", {"entity_id": self.lock_entity})
-        self.control_state = ControlState()
+        self._last_handover_attempt = dt_util.utcnow().timestamp()
+        return await async_hand_over(
+            self.hass, self.name, self.trv, self.lock_entity, float(self.params[CONF_MIN_SETPOINT])
+        )
 
     # ---- statistics ------------------------------------------------------------------
 

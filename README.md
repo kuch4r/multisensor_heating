@@ -19,7 +19,9 @@ more heat) or **below** it (stop).
 - **Proportional heating**: `TRV setpoint = TRV temp + max(min boost, gain × deficit)`.
 - **Window blocking**: any window open longer than 2 min (configurable) → TRV `Off`;
   closed → back to `Heat`.
-- **Kill switch** per room: hands the TRV back to its Salus schedule (`Auto`).
+- **Kill switch** per room: hands the TRV back to its Salus schedule (`Auto`), retrying until
+  it succeeds. TRVs without `Auto` get the lowest setpoint instead. Disabling or deleting a room
+  hands its TRV back the same way.
 - **Vacation preset**: TRV holds a fixed temperature (default 10 °C), sensors ignored.
 - **TRV child lock** (optional) plus automatic correction of manual setpoint changes.
 - **Suggested offsets** computed from the last 24 h of data relative to a **reference sensor**.
@@ -103,7 +105,9 @@ Setpoints are rounded to 0.5 °C and clamped to 5–30 °C. Order of precedence:
 TRV unavailable → window open → room off → vacation → normal control. If no sensor has data,
 the TRV is set to the room target and a Repairs issue is raised.
 
-Extra sensors that have not reported for 120 min (configurable) are ignored.
+Sensors, including the TRV itself, that have not reported for 120 min (configurable) are
+ignored. Minimum must be ≤ maximum for every sensor's safety range. A window that blocked heating
+before an HA restart keeps blocking if it is still open.
 
 ## Tuning guide
 

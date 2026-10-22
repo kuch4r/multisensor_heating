@@ -81,6 +81,7 @@ class ControlState:
     last_write: float | None = None
     last_hvac_request: str | None = None
     last_hvac_write: float | None = None
+    handover_pending: bool = False
 
 
 @dataclass(frozen=True)
@@ -211,7 +212,10 @@ def decide(inp: ControlInput) -> Decision:
 
     available = [st for st in statuses.values() if st.status != STATUS_UNAVAILABLE]
     if not available or trv.current_temperature is None:
-        return result(REASON_NO_SENSORS, False, HVAC_HEAT, _clamp(_round_down(s.target), s))
+        # Only switch the TRV on if it is not off, or if we switched it off ourselves;
+        # never resurrect a TRV that was switched off by hand.
+        hvac = HVAC_HEAT if trv.hvac_mode != HVAC_OFF or prev.last_hvac_request == HVAC_OFF else None
+        return result(REASON_NO_SENSORS, False, hvac, _clamp(_round_down(s.target), s))
 
     if any(st.status == STATUS_HOT for st in available):
         heating = False
