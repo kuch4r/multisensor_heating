@@ -622,7 +622,7 @@ var U = (e, t = 1) => e == null || !Number.isFinite(e) ? "–" : e.toFixed(t), W
 		label: "Disabled",
 		icon: "mdi:robot-off",
 		color: "var(--warning-color, #ffa600)",
-		title: "Not controlled: TRV follows its own Salus schedule"
+		title: "Not controlled: the TRV is left as it is"
 	}
 ];
 function K(e, t) {
@@ -1380,7 +1380,7 @@ var Ge = class extends z {
 	window_open: "A window has been open longer than the delay — the TRV is switched off.",
 	room_off: "The room is switched off — the TRV is switched off.",
 	vacation: "Vacation mode — the TRV holds the vacation temperature, sensors are ignored.",
-	disabled: "Disabled — the room is not controlled; the TRV follows its own Salus schedule.",
+	disabled: "Disabled — the room is not controlled; the TRV is left as it is.",
 	trv_unavailable: "The TRV is unavailable — nothing is changed.",
 	no_sensors: "No temperature data — the TRV is set to the room target as a fail-safe."
 }, Ye = class extends z {

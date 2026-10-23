@@ -112,11 +112,12 @@ async def test_vacation_preset(hass: HomeAssistant, entry, calls):
     assert calls["temp"][-1].data["temperature"] == 10.0
 
 
-async def test_kill_switch_hands_over_to_salus(hass: HomeAssistant, entry, calls):
+async def test_kill_switch_leaves_trv_alone(hass: HomeAssistant, entry, calls):
+    n_hvac = len(calls["hvac"])
     await hass.services.async_call(
         "switch", "turn_off", {"entity_id": eid(hass, "switch", "enabled", entry)}, blocking=True
     )
-    assert calls["hvac"][-1].data == {"entity_id": TRV, "hvac_mode": "auto"}
+    assert len(calls["hvac"]) == n_hvac
     n = len(calls["temp"])
     hass.states.async_set(HIGH, "15.0", {"device_class": "temperature"})
     await hass.async_block_till_done()

@@ -15,16 +15,8 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.typing import ConfigType
 
 from . import websocket_api
-from .const import (
-    CONF_LOCK,
-    CONF_MIN_SETPOINT,
-    CONF_TRV,
-    DEFAULT_PARAMS,
-    DOMAIN,
-    FRONTEND_FILE,
-    FRONTEND_URL,
-)
-from .coordinator import RoomController, async_hand_over
+from .const import DOMAIN, FRONTEND_FILE, FRONTEND_URL
+from .coordinator import RoomController
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -72,18 +64,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: RoomConfigEntry) -> bool
 async def async_unload_entry(hass: HomeAssistant, entry: RoomConfigEntry) -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
-        # A disabled room must not leave the TRV off or boosted; a plain reload keeps control.
-        await entry.runtime_data.async_unload(hand_over=entry.disabled_by is not None)
+        await entry.runtime_data.async_unload()
     return unloaded
-
-
-async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Room deleted: hand the TRV back to its own Salus schedule."""
-    options = {**DEFAULT_PARAMS, **entry.options}
-    await async_hand_over(
-        hass, entry.title, entry.data[CONF_TRV], options.get(CONF_LOCK),
-        float(options[CONF_MIN_SETPOINT]),
-    )
 
 
 async def _async_reload(hass: HomeAssistant, entry: RoomConfigEntry) -> None:

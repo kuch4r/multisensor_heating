@@ -37,9 +37,10 @@ async def test_vacation_holds_vacation_temperature(hass, entry, calls):
     assert hass.states.get(eid(hass, "climate", "climate", entry)).attributes["preset_mode"] == "away"
 
 
-async def test_disabled_hands_trv_to_salus_schedule(hass, entry, calls):
+async def test_disabled_leaves_trv_as_is(hass, entry, calls):
+    n = {k: len(v) for k, v in calls.items()}
     await select_mode(hass, entry, "disabled")
-    assert calls["hvac"][-1].data == {"entity_id": TRV, "hvac_mode": "auto"}
+    assert {k: len(v) for k, v in calls.items()} == n
     assert hass.states.get(eid(hass, "switch", "enabled", entry)).state == "off"
     assert hass.states.get(eid(hass, "sensor", "control_reason", entry)).state == "disabled"
 

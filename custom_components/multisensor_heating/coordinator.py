@@ -93,22 +93,18 @@ async def async_call_service(
     return True
 
 
-async def async_hand_over(
-    hass: HomeAssistant, room: str, trv: str, lock: str | None, safe_setpoint: float
-) -> bool:
-    """Return the TRV to its own Salus schedule (or a safe low setpoint) and unlock it."""
-    state = hass.states.get(trv)
-    if state is not None and "auto" in (state.attributes.get("hvac_modes") or []):
-        ok = await async_call_service(
-            hass, room, "climate", "set_hvac_mode", {"entity_id": trv, "hvac_mode": "auto"}
-        )
-    else:
-        ok = await async_call_service(
-            hass, room, "climate", "set_temperature", {"entity_id": trv, "temperature": safe_setpoint}
-        )
-    if lock:
-        await async_call_service(hass, room, "lock", "unlock", {"entity_id": lock})
-    return ok
+# Salus TRVs (e.g. TRV3RF) expose presets; heating is controlled through them when available.
+PRESET_HOLD = "Permanent Hold"
+PRESET_OFF = "Off"
+PRESET_FOR_MODE = {"heat": PRESET_HOLD, "off": PRESET_OFF}
+MODE_FOR_PRESET = {PRESET_HOLD: "heat", PRESET_OFF: "off"}
+
+
+def trv_uses_presets(state: State | None) -> bool:
+    return state is not None and {PRESET_HOLD, PRESET_OFF} <= set(
+        state.attributes.get("preset_modes") or []
+    )
+
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "target": DEFAULT_TARGET,
@@ -154,7 +150,6 @@ class RoomController:
         self.stats = OffsetStats(STATS_WINDOW_H * 3600, STATS_SAMPLE_S)
         self._last_sample: float = 0.0
         self._last_lock_attempt: float = 0.0
-        self._last_handover_attempt: float = 0.0
         self._restored_window_block = False
         self._debouncer = Debouncer(
             hass, _LOGGER, cooldown=DEBOUNCE_S, immediate=True, function=self.async_evaluate
@@ -201,16 +196,14 @@ class RoomController:
         )
         self._schedule_window_timer()
 
-    async def async_unload(self, hand_over: bool = False) -> None:
-        """Stop controlling; with ``hand_over`` (room disabled) return the TRV to Salus."""
+    async def async_unload(self) -> None:
+        """Stop controlling; the TRV is left as it is."""
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
         self._cancel_window_timer()
         self._debouncer.async_shutdown()
         async with self._eval_lock:
-            if hand_over:
-                await self._hand_over_to_trv()
             await self._store.async_save(self._data())
 
     def _data(self) -> dict[str, Any]:
@@ -301,9 +294,14 @@ class RoomController:
         if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
             return TrvState(available=False)
         stale = self._is_stale(state, dt_util.utcnow())
+        if trv_uses_presets(state):
+            # Follow Schedule, Temporary Hold, ... all count as "not ours" -> corrected.
+            mode = MODE_FOR_PRESET.get(state.attributes.get("preset_mode"), "auto")
+        else:
+            mode = state.state
         return TrvState(
             available=True,
-            hvac_mode=state.state,
+            hvac_mode=mode,
             current_temperature=None if stale else state_temperature(state),
             target_temperature=state.attributes.get("temperature"),
         )
@@ -355,10 +353,9 @@ class RoomController:
             state = decision.state
             wrote = False
             if decision.set_hvac_mode is not None:
-                # A failed hvac request is retried by the controller after HVAC_RETRY_S.
+                # A failed request is retried by the controller after HVAC_RETRY_S.
                 wrote = True
-                await self._call("climate", "set_hvac_mode",
-                                 {"entity_id": self.trv, "hvac_mode": decision.set_hvac_mode})
+                await self._set_trv_mode(decision.set_hvac_mode)
             if decision.set_temperature is not None:
                 wrote = True
                 if not await self._call("climate", "set_temperature",
@@ -366,13 +363,6 @@ class RoomController:
                     # Retry after HVAC_RETRY_S instead of the full min_write_interval.
                     retry_at = now - float(self.params[CONF_MIN_WRITE_INTERVAL]) + HVAC_RETRY_S
                     state = replace(state, last_write=retry_at)
-            if (
-                state.handover_pending
-                and not self.settings["enabled"]
-                and now - self._last_handover_attempt >= HVAC_RETRY_S
-            ):
-                wrote = True
-                state = replace(state, handover_pending=not await self._hand_over_to_trv())
             await self._enforce_lock(now)
             self._update_issue(decision.reason == REASON_NO_SENSORS)
             if wrote:
@@ -397,6 +387,14 @@ class RoomController:
 
     async def _call(self, domain: str, service: str, data: dict[str, Any]) -> bool:
         return await async_call_service(self.hass, self.name, domain, service, data)
+
+    async def _set_trv_mode(self, mode: str) -> bool:
+        """Heat / off via the TRV's presets (Permanent Hold / Off) when it has them,
+        otherwise via its HVAC mode."""
+        if trv_uses_presets(self.hass.states.get(self.trv)):
+            return await self._call("climate", "set_preset_mode",
+                                    {"entity_id": self.trv, "preset_mode": PRESET_FOR_MODE[mode]})
+        return await self._call("climate", "set_hvac_mode", {"entity_id": self.trv, "hvac_mode": mode})
 
     def _update_issue(self, active: bool) -> None:
         issue_id = f"no_sensors_{self.entry.entry_id}"
@@ -433,15 +431,10 @@ class RoomController:
         await self.async_set_settings({key: value})
 
     async def async_set_settings(self, values: dict[str, Any]) -> None:
-        """Apply several settings at once, then evaluate a single time."""
-        was_enabled = self.settings["enabled"]
+        """Apply several settings at once, then evaluate a single time.
+
+        Disabling sends nothing to the TRV: it is simply no longer enforced."""
         self.settings.update(values)
-        enabled = self.settings["enabled"]
-        if was_enabled and not enabled:
-            async with self._eval_lock:
-                self.control_state = ControlState(handover_pending=not await self._hand_over_to_trv())
-        elif enabled and not was_enabled:
-            self.control_state = replace(self.control_state, handover_pending=False)
         if values.get("lock") is False and self.lock_entity:
             await self._call("lock", "unlock", {"entity_id": self.lock_entity})
         self._save()
@@ -451,13 +444,6 @@ class RoomController:
         self.sensor_settings[sensor_id][key] = value
         self._save()
         await self.async_evaluate()
-
-    async def _hand_over_to_trv(self) -> bool:
-        """Kill switch: return the TRV to its own Salus schedule and unlock it."""
-        self._last_handover_attempt = dt_util.utcnow().timestamp()
-        return await async_hand_over(
-            self.hass, self.name, self.trv, self.lock_entity, float(self.params[CONF_MIN_SETPOINT])
-        )
 
     # ---- statistics ------------------------------------------------------------------
 

@@ -27,6 +27,16 @@ def set_trv(hass: HomeAssistant, current=19.0, target=19.0, mode="heat",
     )
 
 
+SALUS_PRESETS = ("Follow Schedule", "Permanent Hold", "Off")
+PRESET_TO_HVAC = {"Off": "off", "Permanent Hold": "heat", "Follow Schedule": "auto"}
+
+
+def set_salus_trv(hass: HomeAssistant, preset="Permanent Hold", current=19.0, target=19.0) -> None:
+    """A TRV3RF as exposed by the leonardpitzu Salus integration (with presets)."""
+    set_trv(hass, current=current, target=target, mode=PRESET_TO_HVAC[preset],
+            preset_mode=preset, preset_modes=list(SALUS_PRESETS))
+
+
 def eid(hass: HomeAssistant, domain: str, key: str, entry: MockConfigEntry) -> str | None:
     return er.async_get(hass).async_get_entity_id(domain, DOMAIN, f"{entry.entry_id}_{key}")
 

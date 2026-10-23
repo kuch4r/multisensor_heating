@@ -20,7 +20,7 @@ async def async_setup_entry(
 
 class RoomMode(RoomEntity, SelectEntity):
     """Heat = controlled (permanent hold), Vacation = fixed temperature,
-    Off = TRV switched off, Disabled = TRV follows its own Salus schedule."""
+    Off = TRV switched off, Disabled = not controlled, TRV left as it is."""
 
     _attr_options = MODES
     _attr_translation_key = "mode"

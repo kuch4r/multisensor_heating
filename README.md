@@ -19,17 +19,18 @@ more heat) or **below** it (stop).
 - **Proportional heating**: `TRV setpoint = TRV temp + max(min boost, gain × deficit)`.
 - **Room mode** per room (selector on the dashboard and `select.<room>_mode`):
 
-  | Mode | TRV | Controlled by this integration |
+  | Mode | TRV preset (Salus) | Controlled by this integration |
   |---|---|---|
-  | **Heat** | permanent hold, setpoint steered from the sensors | yes |
-  | **Vacation** | permanent hold at the vacation temperature, sensors ignored | yes |
-  | **Off** | switched off (no heating) | yes, it stays off |
-  | **Disabled** | follows its own Salus schedule | no |
-- **Window blocking**: any window open longer than 2 min (configurable) → TRV `Off`;
-  closed → back to `Heat`.
-- **Kill switch** per room: hands the TRV back to its Salus schedule (`Auto`), retrying until
-  it succeeds. TRVs without `Auto` get the lowest setpoint instead. Disabling or deleting a room
-  hands its TRV back the same way.
+  | **Heat** | `Permanent Hold`, setpoint steered from the sensors | yes |
+  | **Vacation** | `Permanent Hold` at the vacation temperature, sensors ignored | yes |
+  | **Off** | `Off` (no heating) | yes, it stays off |
+  | **Disabled** | left exactly as it is | no, nothing is sent or enforced |
+
+  TRVs that expose the Salus presets (`Permanent Hold` / `Off`, e.g. TRV3RF in the Salus
+  iT600 integration) are controlled only through those presets. Other TRVs use the HVAC
+  modes `heat` / `off`. Disabling or deleting a room also leaves its TRV as it is.
+- **Window blocking**: any window open longer than 2 min (configurable) → TRV `Off` preset;
+  closed → back to `Permanent Hold`.
 - **Vacation preset**: TRV holds a fixed temperature (default 10 °C), sensors ignored.
 - **TRV child lock** (optional) plus automatic correction of manual setpoint changes.
 - **Suggested offsets** computed from the last 24 h of data relative to a **reference sensor**.

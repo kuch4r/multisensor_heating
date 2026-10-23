@@ -50,38 +50,22 @@ def hvac_modes(calls) -> list[str]:
     return [c.data["hvac_mode"] for c in calls]
 
 
-# ---- H1: kill switch hand-over must be reliable -------------------------------------
+# ---- H1/H2 (revised): Disabled means "leave the TRV as it is" -----------------------
+# Originally the kill switch handed the TRV to the Salus schedule; by user decision
+# disabling (automation, room entry or deletion) now sends nothing at all.
 
 
-async def test_h1_kill_switch_retries_handover_when_call_fails(hass, entry, freezer):
-    hvac = flaky_service(hass, "climate", "set_hvac_mode", fail_times=1)
+def call_counts(calls) -> dict[str, int]:
+    return {k: len(v) for k, v in calls.items()}
+
+
+async def test_h1_kill_switch_sends_nothing_and_stops_enforcing(hass, entry, calls, freezer):
+    n = call_counts(calls)
     await turn_off_automation(hass, entry)
-    assert hvac_modes(hvac) == ["auto"]
-    await advance(hass, freezer, 61)
-    assert hvac_modes(hvac) == ["auto", "auto"], "failed hand-over to Salus schedule was not retried"
-
-
-async def test_h1_kill_switch_without_auto_mode_sets_safe_setpoint(hass, calls):
-    set_trv(hass, target=23.0, hvac_modes=("off", "heat"))
-    entry = await setup_room(hass)
-    await turn_off_automation(hass, entry)
-    written = [c.data["temperature"] for c in calls["temp"]]
-    assert written[-1:] == [DEFAULT_PARAMS["min_setpoint"]], (
-        f"TRV without 'auto' mode was left at a boosted setpoint (writes: {written})"
-    )
-
-
-async def test_h1_guard_no_fighting_user_after_successful_handover(hass, entry, calls, freezer):
-    await turn_off_automation(hass, entry)
-    set_trv(hass, mode="auto")
-    await advance(hass, freezer, 61)
-    set_trv(hass, mode="heat", target=22.0)  # user takes manual control while automation is off
-    n = len(calls["hvac"])
-    await advance(hass, freezer, 180)
-    assert len(calls["hvac"]) == n
-
-
-# ---- H2: removing / disabling a room hands the TRV back -----------------------------
+    set_trv(hass, mode="auto", target=25.0)  # user takes manual control
+    hass.states.async_set(HIGH, "15.0", {"device_class": "temperature"})
+    await advance(hass, freezer, 300)
+    assert call_counts(calls) == n
 
 
 async def _room_off(hass, entry, calls):
@@ -91,25 +75,29 @@ async def _room_off(hass, entry, calls):
     await hass.async_block_till_done()
 
 
-async def test_h2_remove_entry_hands_trv_back_to_schedule(hass, entry, calls):
+async def test_h2_remove_entry_leaves_trv_as_is(hass, entry, calls):
     await _room_off(hass, entry, calls)
+    n = call_counts(calls)
     await hass.config_entries.async_remove(entry.entry_id)
     await hass.async_block_till_done()
-    assert hvac_modes(calls["hvac"])[-1] == "auto", "removed room left the TRV switched off"
+    assert call_counts(calls) == n
 
 
-async def test_h2_disable_entry_hands_trv_back_to_schedule(hass, entry, calls):
+async def test_h2_disable_entry_leaves_trv_as_is(hass, entry, calls):
     await _room_off(hass, entry, calls)
+    n = call_counts(calls)
     await hass.config_entries.async_set_disabled_by(entry.entry_id, ConfigEntryDisabler.USER)
     await hass.async_block_till_done()
-    assert hvac_modes(calls["hvac"])[-1] == "auto", "disabled room left the TRV switched off"
+    assert call_counts(calls) == n
 
 
-async def test_h2_guard_reload_does_not_hand_over(hass, entry, calls):
+async def test_h2_reload_keeps_control_without_extra_calls(hass, entry, calls):
     await _room_off(hass, entry, calls)
+    n = call_counts(calls)
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
-    assert "auto" not in hvac_modes(calls["hvac"])
+    assert call_counts(calls) == n
+    assert hass.states.get(eid(hass, "sensor", "control_reason", entry)).state == "room_off"
 
 
 # ---- H3: failed setpoint writes are retried promptly --------------------------------

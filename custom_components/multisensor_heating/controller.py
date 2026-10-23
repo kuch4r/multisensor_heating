@@ -81,7 +81,6 @@ class ControlState:
     last_write: float | None = None
     last_hvac_request: str | None = None
     last_hvac_write: float | None = None
-    handover_pending: bool = False
 
 
 @dataclass(frozen=True)

@@ -76,7 +76,7 @@ export const MODES: ModeInfo[] = [
   { value: "off", label: "Off", icon: "mdi:power", color: "var(--state-inactive-color, #9e9e9e)",
     title: "TRV switched off (no heating), still controlled" },
   { value: "disabled", label: "Disabled", icon: "mdi:robot-off", color: "var(--warning-color, #ffa600)",
-    title: "Not controlled: TRV follows its own Salus schedule" },
+    title: "Not controlled: the TRV is left as it is" },
 ];
 
 export function roomMode(hass: HomeAssistant, room: RoomInfo): string | undefined {
