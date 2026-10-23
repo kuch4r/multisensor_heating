@@ -74,7 +74,7 @@ export const MODES: ModeInfo[] = [
   { value: "vacation", label: "Vacation", icon: "mdi:beach", color: "#8e44ad",
     title: "TRV holds the vacation temperature, sensors ignored" },
   { value: "off", label: "Off", icon: "mdi:power", color: "var(--state-inactive-color, #9e9e9e)",
-    title: "TRV switched off (no heating), still controlled" },
+    title: "No heating (TRV held at the minimum setpoint), still controlled" },
   { value: "disabled", label: "Disabled", icon: "mdi:robot-off", color: "var(--warning-color, #ffa600)",
     title: "Not controlled: the TRV is left as it is" },
 ];

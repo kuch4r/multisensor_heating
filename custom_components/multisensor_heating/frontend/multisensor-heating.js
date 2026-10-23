@@ -615,7 +615,7 @@ var U = (e, t = 1) => e == null || !Number.isFinite(e) ? "–" : e.toFixed(t), W
 		label: "Off",
 		icon: "mdi:power",
 		color: "var(--state-inactive-color, #9e9e9e)",
-		title: "TRV switched off (no heating), still controlled"
+		title: "No heating (TRV held at the minimum setpoint), still controlled"
 	},
 	{
 		value: "disabled",
@@ -1377,8 +1377,8 @@ var Ge = class extends z {
 }, qe = 3e5, Je = {
 	heating: "At least one sensor is below its target — the TRV setpoint is raised above the TRV's own reading.",
 	idle: "Targets reached (or a sensor is above its upper limit) — the TRV setpoint is kept below the TRV's own reading.",
-	window_open: "A window has been open longer than the delay — the TRV is switched off.",
-	room_off: "The room is switched off — the TRV is switched off.",
+	window_open: "A window has been open longer than the delay — heating is stopped.",
+	room_off: "The room is switched off — heating is stopped.",
 	vacation: "Vacation mode — the TRV holds the vacation temperature, sensors are ignored.",
 	disabled: "Disabled — the room is not controlled; the TRV is left as it is.",
 	trv_unavailable: "The TRV is unavailable — nothing is changed.",

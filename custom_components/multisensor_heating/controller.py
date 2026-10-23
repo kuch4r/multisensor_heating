@@ -60,6 +60,8 @@ class RoomSettings:
     min_write_interval: float = 180.0
     min_setpoint: float = 5.0
     max_setpoint: float = 30.0
+    # Stop heating by holding the minimum setpoint instead of switching the TRV off.
+    off_by_setpoint: bool = False
 
 
 @dataclass(frozen=True)
@@ -202,10 +204,11 @@ def decide(inp: ControlInput) -> Decision:
         return Decision(REASON_TRV_UNAVAILABLE, False, window_blocked,
                         replace(prev, heating=False, reason=REASON_TRV_UNAVAILABLE),
                         sensors=statuses)
+    off_hvac, off_setpoint = (HVAC_HEAT, s.min_setpoint) if s.off_by_setpoint else (HVAC_OFF, None)
     if window_blocked:
-        return result(REASON_WINDOW_OPEN, False, HVAC_OFF, None)
+        return result(REASON_WINDOW_OPEN, False, off_hvac, off_setpoint)
     if not s.hvac_on:
-        return result(REASON_ROOM_OFF, False, HVAC_OFF, None)
+        return result(REASON_ROOM_OFF, False, off_hvac, off_setpoint)
     if s.away:
         return result(REASON_VACATION, False, HVAC_HEAT, _clamp(s.vacation_temp, s))
 

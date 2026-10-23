@@ -31,8 +31,8 @@ const HISTORY_REFRESH_MS = 5 * 60_000;
 const REASON_TEXT: Record<string, string> = {
   heating: "At least one sensor is below its target — the TRV setpoint is raised above the TRV's own reading.",
   idle: "Targets reached (or a sensor is above its upper limit) — the TRV setpoint is kept below the TRV's own reading.",
-  window_open: "A window has been open longer than the delay — the TRV is switched off.",
-  room_off: "The room is switched off — the TRV is switched off.",
+  window_open: "A window has been open longer than the delay — heating is stopped.",
+  room_off: "The room is switched off — heating is stopped.",
   vacation: "Vacation mode — the TRV holds the vacation temperature, sensors are ignored.",
   disabled: "Disabled — the room is not controlled; the TRV is left as it is.",
   trv_unavailable: "The TRV is unavailable — nothing is changed.",

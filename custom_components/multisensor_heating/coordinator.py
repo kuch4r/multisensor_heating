@@ -93,17 +93,14 @@ async def async_call_service(
     return True
 
 
-# Salus TRVs (e.g. TRV3RF) expose presets; heating is controlled through them when available.
+# Salus TRVs (e.g. TRV3RF) expose presets. They are kept in Permanent Hold and heating is
+# stopped with the minimum setpoint: the integration's "Off" preset writes HoldType 7, which
+# a TRV3RF does not treat as off (it keeps heating and the Salus app shows Follow Schedule).
 PRESET_HOLD = "Permanent Hold"
-PRESET_OFF = "Off"
-PRESET_FOR_MODE = {"heat": PRESET_HOLD, "off": PRESET_OFF}
-MODE_FOR_PRESET = {PRESET_HOLD: "heat", PRESET_OFF: "off"}
 
 
 def trv_uses_presets(state: State | None) -> bool:
-    return state is not None and {PRESET_HOLD, PRESET_OFF} <= set(
-        state.attributes.get("preset_modes") or []
-    )
+    return state is not None and PRESET_HOLD in (state.attributes.get("preset_modes") or [])
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -295,8 +292,8 @@ class RoomController:
             return TrvState(available=False)
         stale = self._is_stale(state, dt_util.utcnow())
         if trv_uses_presets(state):
-            # Follow Schedule, Temporary Hold, ... all count as "not ours" -> corrected.
-            mode = MODE_FOR_PRESET.get(state.attributes.get("preset_mode"), "auto")
+            # Follow Schedule, Temporary Hold, Off, ... all count as "not ours" -> corrected.
+            mode = "heat" if state.attributes.get("preset_mode") == PRESET_HOLD else "auto"
         else:
             mode = state.state
         return TrvState(
@@ -322,6 +319,7 @@ class RoomController:
             min_write_interval=float(p[CONF_MIN_WRITE_INTERVAL]),
             min_setpoint=float(p[CONF_MIN_SETPOINT]),
             max_setpoint=float(p[CONF_MAX_SETPOINT]),
+            off_by_setpoint=trv_uses_presets(self.hass.states.get(self.trv)),
         )
 
     # ---- evaluation ------------------------------------------------------------------
@@ -389,11 +387,11 @@ class RoomController:
         return await async_call_service(self.hass, self.name, domain, service, data)
 
     async def _set_trv_mode(self, mode: str) -> bool:
-        """Heat / off via the TRV's presets (Permanent Hold / Off) when it has them,
-        otherwise via its HVAC mode."""
+        """Permanent Hold for TRVs with presets (they are never switched off), otherwise
+        the HVAC mode."""
         if trv_uses_presets(self.hass.states.get(self.trv)):
             return await self._call("climate", "set_preset_mode",
-                                    {"entity_id": self.trv, "preset_mode": PRESET_FOR_MODE[mode]})
+                                    {"entity_id": self.trv, "preset_mode": PRESET_HOLD})
         return await self._call("climate", "set_hvac_mode", {"entity_id": self.trv, "hvac_mode": mode})
 
     def _update_issue(self, active: bool) -> None:

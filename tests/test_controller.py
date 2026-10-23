@@ -156,6 +156,15 @@ def test_room_off():
     assert d.set_hvac_mode == "off"
 
 
+def test_off_by_setpoint_keeps_heat_and_holds_minimum():
+    settings = replace(SETTINGS, off_by_setpoint=True)
+    for d in (run([SensorInput("high", 15.0)], settings=replace(settings, hvac_on=False)),
+              run([SensorInput("high", 15.0)], settings=settings, window_since=880.0)):
+        assert not d.heating
+        assert d.set_hvac_mode is None  # TRV already in heat / Permanent Hold
+        assert d.set_temperature == 5.0
+
+
 def test_disabled_does_nothing():
     d = run([SensorInput("high", 15.0)], settings=replace(SETTINGS, enabled=False),
             trv=replace(TRV, hvac_mode="auto"))

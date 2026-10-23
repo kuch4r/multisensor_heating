@@ -1,5 +1,6 @@
-"""TRVs with Salus presets: Permanent Hold while controlled, Off preset for Off / windows,
-and Disabled leaves the TRV untouched."""
+"""TRVs with Salus presets: always Permanent Hold while controlled; Off / windows hold the
+minimum setpoint (the TRV3RF ignores the "Off" preset, it only knocks it out of Permanent
+Hold); Disabled leaves the TRV untouched."""
 
 from datetime import timedelta
 
@@ -28,27 +29,32 @@ async def test_schedule_trv_switched_to_permanent_hold_preset(hass, calls):
     assert not calls["hvac"], "hvac mode used although the TRV supports presets"
 
 
-async def test_off_uses_off_preset(hass, calls):
+def setpoints(calls) -> list[float]:
+    return [c.data["temperature"] for c in calls["temp"]]
+
+
+async def test_off_holds_minimum_setpoint_in_permanent_hold(hass, calls):
     set_salus_trv(hass)
     entry = await setup_room(hass)
     await select_mode(hass, entry, "off")
-    assert presets(calls)[-1] == "Off"
+    assert setpoints(calls)[-1] == 5.0
+    assert "Off" not in presets(calls)
     assert not calls["hvac"]
 
 
-async def test_off_then_heat_switches_presets(hass, calls):
+async def test_off_then_heat_keeps_permanent_hold(hass, calls):
     set_salus_trv(hass)
     entry = await setup_room(hass)
     await select_mode(hass, entry, "off")
-    assert presets(calls) == ["Off"]
-    set_salus_trv(hass, preset="Off")  # gateway reports the new preset
+    set_salus_trv(hass, target=5.0)  # gateway reports the new setpoint
     await hass.async_block_till_done()
     await select_mode(hass, entry, "heat")
-    assert presets(calls) == ["Off", "Permanent Hold"]
+    assert setpoints(calls)[-1] > 5.0
+    assert presets(calls) == []
     assert not calls["hvac"]
 
 
-async def test_window_uses_off_preset_and_restores_hold(hass, calls, freezer):
+async def test_window_holds_minimum_setpoint_and_resumes(hass, calls, freezer):
     set_salus_trv(hass)
     await setup_room(hass)
     hass.states.async_set(WINDOW, "on", {"device_class": "window"})
@@ -56,14 +62,37 @@ async def test_window_uses_off_preset_and_restores_hold(hass, calls, freezer):
     freezer.tick(timedelta(seconds=125))
     async_fire_time_changed(hass, dt_util.utcnow())
     await hass.async_block_till_done()
-    assert presets(calls)[-1] == "Off"
+    assert setpoints(calls)[-1] == 5.0
+    assert "Off" not in presets(calls)
 
-    set_salus_trv(hass, preset="Off")
+    set_salus_trv(hass, target=5.0)
     hass.states.async_set(WINDOW, "off", {"device_class": "window"})
     freezer.tick(timedelta(seconds=2))
     async_fire_time_changed(hass, dt_util.utcnow())
     await hass.async_block_till_done()
-    assert presets(calls)[-1] == "Permanent Hold"
+    assert setpoints(calls)[-1] > 5.0
+    assert not calls["hvac"]
+
+
+async def test_off_preset_left_by_old_versions_is_corrected(hass, calls):
+    """HoldType 7 ("Off" preset) is not off on a TRV3RF; switch it back to Permanent Hold."""
+    set_salus_trv(hass, preset="Off")
+    entry = await setup_room(hass)
+    assert presets(calls) == ["Permanent Hold"]
+    await select_mode(hass, entry, "off")
+    assert presets(calls) == ["Permanent Hold"]
+
+
+async def test_off_room_does_not_fight_permanent_hold(hass, calls, freezer):
+    """The reported bug: an Off room re-sent the Off preset whenever the TRV was in hold."""
+    set_salus_trv(hass)
+    entry = await setup_room(hass)
+    await select_mode(hass, entry, "off")
+    set_salus_trv(hass, target=5.0)
+    freezer.tick(timedelta(seconds=300))
+    async_fire_time_changed(hass, dt_util.utcnow())
+    await hass.async_block_till_done()
+    assert presets(calls) == []
 
 
 async def test_temporary_hold_is_corrected_to_permanent_hold(hass, calls):
