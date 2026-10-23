@@ -1,7 +1,10 @@
 import { LitElement, css, html, nothing } from "lit";
 import {
+  MODES,
   RETRY_MS,
   STATUS,
+  roomMode,
+  setRoomMode,
   fireEvent,
   fmt,
   getRooms,
@@ -96,18 +99,20 @@ export class OverviewCard extends LitElement {
     `;
   }
 
-  private _climates(): string[] {
-    return (this._rooms ?? []).map((r) => r.entities.climate).filter((id): id is string => !!id);
+  /** Rooms the global vacation button acts on: Off and Disabled rooms are left alone. */
+  private _vacationRooms(): RoomInfo[] {
+    return (this._rooms ?? []).filter((r) => ["heat", "vacation"].includes(roomMode(this.hass, r) ?? ""));
   }
 
   private _vacationToggle() {
-    const climates = this._climates();
-    const away = climates.filter((id) => this.hass.states[id]?.attributes.preset_mode === "away").length;
-    const all = away === climates.length;
-    const label = all ? "Vacation: all rooms" : away ? `Vacation: ${away}/${climates.length} rooms` : "Vacation";
+    const rooms = this._vacationRooms();
+    const away = rooms.filter((r) => roomMode(this.hass, r) === "vacation").length;
+    const all = rooms.length > 0 && away === rooms.length;
+    const label = all ? "Vacation: all rooms" : away ? `Vacation: ${away}/${rooms.length} rooms` : "Vacation";
     return html`<button
       class="vacation ${all ? "on" : away ? "partial" : ""}"
-      title=${all ? "Turn vacation off in all rooms" : "Turn vacation on in all rooms"}
+      title=${all ? "Turn vacation off in all rooms" : "Turn vacation on in all heated rooms"}
+      ?disabled=${!rooms.length}
       @click=${() => this._setVacation(!all)}
     >
       <ha-icon icon="mdi:beach"></ha-icon>${label}
@@ -115,28 +120,42 @@ export class OverviewCard extends LitElement {
   }
 
   private _setVacation(on: boolean): void {
-    const climates = this._climates();
+    const rooms = this._vacationRooms().filter((r) => roomMode(this.hass, r) === (on ? "heat" : "vacation"));
     const question = on
-      ? `Turn on vacation mode in all ${climates.length} rooms? TRVs will hold the vacation temperature.`
-      : "Turn off vacation mode in all rooms and resume normal control?";
-    if (!climates.length || !window.confirm(question)) return;
-    void this.hass.callService("climate", "set_preset_mode", {
-      entity_id: climates,
-      preset_mode: on ? "away" : "none",
-    });
+      ? `Turn on vacation mode in ${rooms.length} room(s)? TRVs will hold the vacation temperature. Rooms that are Off or Disabled are not changed.`
+      : `Turn off vacation mode in ${rooms.length} room(s) and resume heating?`;
+    if (!rooms.length || !window.confirm(question)) return;
+    rooms.forEach((r) => setRoomMode(this.hass, r, on ? "vacation" : "heat"));
+  }
+
+  private _modeSelector(room: RoomInfo) {
+    const mode = roomMode(this.hass, room);
+    return html`<div class="modes" role="radiogroup" aria-label="Room mode" @click=${(e: Event) => e.stopPropagation()}>
+      ${MODES.map(
+        (m) => html`<button
+          role="radio"
+          aria-checked=${mode === m.value}
+          aria-label=${m.label}
+          class="mode ${mode === m.value ? "active" : ""}"
+          style="--mode-color:${m.color}"
+          title="${m.label}: ${m.title}"
+          @click=${() => mode !== m.value && setRoomMode(this.hass, room, m.value)}
+        >
+          <ha-icon .icon=${m.icon}></ha-icon>
+        </button>`,
+      )}
+    </div>`;
   }
 
   private _tile(room: RoomInfo) {
     const hass = this.hass;
     const climateId = room.entities.climate;
-    const climate = climateId ? hass.states[climateId] : undefined;
     const status = STATUS[roomReason(hass, room)] ?? STATUS.unknown;
     const current = num(hass, climateId, "current_temperature");
     const target = num(hass, climateId, "temperature");
     const trvTemp = num(hass, room.trv_entity, "current_temperature");
     const trvSet = num(hass, room.trv_entity, "temperature");
     const windows = openWindows(hass, room);
-    const automationOff = room.entities.automation && hass.states[room.entities.automation]?.state === "off";
     const locked = room.lock_entity && hass.states[room.lock_entity]?.state === "locked";
     const delta = current != null && target != null ? current - target : undefined;
 
@@ -161,14 +180,13 @@ export class OverviewCard extends LitElement {
             <ha-icon icon="mdi:plus"></ha-icon>
           </button>
         </div>
+        ${this._modeSelector(room)}
         <div class="foot">
           <span title="TRV temperature → TRV setpoint"><ha-icon icon="mdi:radiator"></ha-icon>
             ${fmt(trvTemp)}° → ${fmt(trvSet)}°</span>
           <span class="icons">
             ${windows.length ? html`<ha-icon class="warn" icon="mdi:window-open-variant" title="Window open"></ha-icon>` : nothing}
-            ${automationOff ? html`<ha-icon icon="mdi:robot-off" title="Automation disabled"></ha-icon>` : nothing}
             ${locked ? html`<ha-icon icon="mdi:lock" title="TRV locked"></ha-icon>` : nothing}
-            ${climate?.attributes.preset_mode === "away" ? html`<ha-icon icon="mdi:beach" title="Vacation"></ha-icon>` : nothing}
           </span>
         </div>
       </div>
@@ -218,6 +236,37 @@ export class OverviewCard extends LitElement {
       font-size: 0.9em;
       cursor: pointer;
       --mdc-icon-size: 18px;
+    }
+    .vacation[disabled] {
+      opacity: 0.5;
+      cursor: default;
+    }
+    .modes {
+      display: flex;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 10px;
+      overflow: hidden;
+      cursor: default;
+    }
+    .mode {
+      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      border-right: 1px solid var(--divider-color, #e0e0e0);
+      padding: 4px 0;
+      background: none;
+      color: var(--secondary-text-color);
+      cursor: pointer;
+      --mdc-icon-size: 18px;
+    }
+    .mode:last-child {
+      border-right: none;
+    }
+    .mode.active {
+      color: var(--mode-color);
+      background: color-mix(in srgb, var(--mode-color) 16%, transparent);
     }
     .vacation.on,
     .vacation.partial {

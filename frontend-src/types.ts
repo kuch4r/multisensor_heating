@@ -30,6 +30,7 @@ export interface RoomInfo {
   reference_sensor: string;
   entities: {
     climate: string | null;
+    mode: string | null;
     automation: string | null;
     lock: string | null;
     window_blocked: string | null;

@@ -48,6 +48,7 @@ def room_info(hass: HomeAssistant, c: RoomController) -> dict[str, Any]:
         "reference_sensor": c.reference,
         "entities": {
             "climate": eid("climate", "climate"),
+            "mode": eid("select", "mode"),
             "automation": eid("switch", "enabled"),
             "lock": eid("switch", "lock"),
             "window_blocked": eid("binary_sensor", "window_blocked"),

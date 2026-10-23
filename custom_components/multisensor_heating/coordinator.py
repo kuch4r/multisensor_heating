@@ -53,6 +53,10 @@ from .const import (
     DEFAULT_VACATION_TEMP,
     DOMAIN,
     EVALUATE_INTERVAL_S,
+    MODE_DISABLED,
+    MODE_HEAT,
+    MODE_OFF,
+    MODE_VACATION,
     REASON_NO_SENSORS,
     REASON_WINDOW_OPEN,
     STATS_SAMPLE_S,
@@ -407,15 +411,38 @@ class RoomController:
 
     # ---- setters used by entities ----------------------------------------------------
 
+    @property
+    def mode(self) -> str:
+        """Room mode derived from the settings: heat / vacation / off / disabled."""
+        s = self.settings
+        if not s["enabled"]:
+            return MODE_DISABLED
+        if not s["hvac_on"]:
+            return MODE_OFF
+        return MODE_VACATION if s["away"] else MODE_HEAT
+
+    async def async_set_mode(self, mode: str) -> None:
+        if mode == MODE_DISABLED:
+            await self.async_set_settings({"enabled": False})
+        else:
+            await self.async_set_settings(
+                {"enabled": True, "hvac_on": mode != MODE_OFF, "away": mode == MODE_VACATION}
+            )
+
     async def async_set_setting(self, key: str, value: Any) -> None:
-        old = self.settings.get(key)
-        self.settings[key] = value
-        if key == "enabled" and old and not value:
+        await self.async_set_settings({key: value})
+
+    async def async_set_settings(self, values: dict[str, Any]) -> None:
+        """Apply several settings at once, then evaluate a single time."""
+        was_enabled = self.settings["enabled"]
+        self.settings.update(values)
+        enabled = self.settings["enabled"]
+        if was_enabled and not enabled:
             async with self._eval_lock:
                 self.control_state = ControlState(handover_pending=not await self._hand_over_to_trv())
-        elif key == "enabled" and value:
+        elif enabled and not was_enabled:
             self.control_state = replace(self.control_state, handover_pending=False)
-        if key == "lock" and self.lock_entity and not value:
+        if values.get("lock") is False and self.lock_entity:
             await self._call("lock", "unlock", {"entity_id": self.lock_entity})
         self._save()
         await self.async_evaluate()

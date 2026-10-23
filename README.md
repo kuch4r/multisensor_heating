@@ -17,6 +17,14 @@ more heat) or **below** it (stop).
   range** (backup in case an offset is wrong).
 - **"Too hot wins"**: heating runs while any sensor is cold and stops as soon as any sensor is hot.
 - **Proportional heating**: `TRV setpoint = TRV temp + max(min boost, gain × deficit)`.
+- **Room mode** per room (selector on the dashboard and `select.<room>_mode`):
+
+  | Mode | TRV | Controlled by this integration |
+  |---|---|---|
+  | **Heat** | permanent hold, setpoint steered from the sensors | yes |
+  | **Vacation** | permanent hold at the vacation temperature, sensors ignored | yes |
+  | **Off** | switched off (no heating) | yes, it stays off |
+  | **Disabled** | follows its own Salus schedule | no |
 - **Window blocking**: any window open longer than 2 min (configurable) → TRV `Off`;
   closed → back to `Heat`.
 - **Kill switch** per room: hands the TRV back to its Salus schedule (`Auto`), retrying until
@@ -68,8 +76,9 @@ strategy:
 ```
 
 This creates an **Overview** page with a tile per room. Tapping a tile opens the room page.
-New rooms appear automatically. The **Vacation** button in the overview header turns vacation
-mode on or off in all rooms at once. It shows a partial count when only some rooms are on vacation.
+New rooms appear automatically. Each tile has a mode selector (Heat / Vacation / Off / Disabled).
+The **Vacation** button in the overview header switches every heated room to Vacation and back;
+rooms that are Off or Disabled are not touched.
 
 **Individual cards.** Add *Multi-Sensor Heating: Overview* or *Multi-Sensor Heating: Room*
 from the card picker, or in YAML:
@@ -126,6 +135,7 @@ before an HA restart keeps blocking if it is still open.
 
 | Entity | Purpose |
 |---|---|
+| `select.<room>_mode` | Room mode: `heat` / `vacation` / `off` / `disabled` |
 | `climate.<room>` | Room target, Heat/Off, preset `away` (vacation). Attributes: reason, per-sensor status |
 | `number.<room>_<sensor>_offset/_min/_max` | Per-sensor settings (offset carries suggestion attributes) |
 | `number.<room>_gain/_hysteresis/_vacation_temperature` | Tuning |

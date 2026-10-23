@@ -90,6 +90,17 @@
           "idle": "Idle"
         }
       }
+    },
+    "select": {
+      "mode": {
+        "name": "Mode",
+        "state": {
+          "heat": "Heat",
+          "vacation": "Vacation",
+          "off": "Off",
+          "disabled": "Disabled (Salus schedule)"
+        }
+      }
     }
   },
   "issues": {

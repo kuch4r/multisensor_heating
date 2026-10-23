@@ -50,7 +50,7 @@ export const STATUS: Record<string, StatusInfo> = {
   window_open: { label: "Window open", color: "var(--info-color, #039be5)", icon: "mdi:window-open-variant" },
   room_off: { label: "Off", color: "var(--state-inactive-color, #9e9e9e)", icon: "mdi:power" },
   vacation: { label: "Vacation", color: "#8e44ad", icon: "mdi:beach" },
-  disabled: { label: "Automation off", color: "var(--state-inactive-color, #9e9e9e)", icon: "mdi:robot-off" },
+  disabled: { label: "Disabled", color: "var(--warning-color, #ffa600)", icon: "mdi:robot-off" },
   trv_unavailable: { label: "TRV unavailable", color: "var(--error-color, #db4437)", icon: "mdi:alert" },
   no_sensors: { label: "No sensors", color: "var(--error-color, #db4437)", icon: "mdi:alert" },
   unknown: { label: "Unknown", color: "var(--state-inactive-color, #9e9e9e)", icon: "mdi:help-circle-outline" },
@@ -62,6 +62,32 @@ export const SENSOR_STATUS: Record<string, StatusInfo> = {
   hot: { label: "Hot", color: "var(--error-color, #db4437)", icon: "mdi:fire-alert" },
   unavailable: { label: "N/A", color: "var(--state-inactive-color, #9e9e9e)", icon: "mdi:help" },
 };
+
+export interface ModeInfo extends StatusInfo {
+  value: string;
+  title: string;
+}
+
+export const MODES: ModeInfo[] = [
+  { value: "heat", label: "Heat", icon: "mdi:fire", color: "var(--state-climate-heat-color, #ff8100)",
+    title: "Controlled by Multi-Sensor Heating (TRV in permanent hold)" },
+  { value: "vacation", label: "Vacation", icon: "mdi:beach", color: "#8e44ad",
+    title: "TRV holds the vacation temperature, sensors ignored" },
+  { value: "off", label: "Off", icon: "mdi:power", color: "var(--state-inactive-color, #9e9e9e)",
+    title: "TRV switched off (no heating), still controlled" },
+  { value: "disabled", label: "Disabled", icon: "mdi:robot-off", color: "var(--warning-color, #ffa600)",
+    title: "Not controlled: TRV follows its own Salus schedule" },
+];
+
+export function roomMode(hass: HomeAssistant, room: RoomInfo): string | undefined {
+  return room.entities.mode ? hass.states[room.entities.mode]?.state : undefined;
+}
+
+export function setRoomMode(hass: HomeAssistant, room: RoomInfo, mode: string): void {
+  if (room.entities.mode) {
+    void hass.callService("select", "select_option", { entity_id: room.entities.mode, option: mode });
+  }
+}
 
 export function roomReason(hass: HomeAssistant, room: RoomInfo): string {
   const climate = room.entities.climate ? hass.states[room.entities.climate] : undefined;

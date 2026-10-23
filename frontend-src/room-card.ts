@@ -1,8 +1,11 @@
 import { LitElement, css, html, nothing } from "lit";
 import {
+  MODES,
   RETRY_MS,
   SENSOR_STATUS,
   STATUS,
+  roomMode,
+  setRoomMode,
   fireEvent,
   fmt,
   fmtSigned,
@@ -31,7 +34,7 @@ const REASON_TEXT: Record<string, string> = {
   window_open: "A window has been open longer than the delay — the TRV is switched off.",
   room_off: "The room is switched off — the TRV is switched off.",
   vacation: "Vacation mode — the TRV holds the vacation temperature, sensors are ignored.",
-  disabled: "Automation is disabled — the TRV follows its own Salus schedule.",
+  disabled: "Disabled — the room is not controlled; the TRV follows its own Salus schedule.",
   trv_unavailable: "The TRV is unavailable — nothing is changed.",
   no_sensors: "No temperature data — the TRV is set to the room target as a fail-safe.",
 };
@@ -158,14 +161,11 @@ export class RoomCard extends LitElement {
     if (!room) return html`<ha-card><div class="pad msg">Loading…</div></ha-card>`;
     const hass = this.hass;
     const e = room.entities;
-    const climate = e.climate ? hass.states[e.climate] : undefined;
     const reason = roomReason(hass, room);
     const status = STATUS[reason] ?? STATUS.unknown;
     const target = num(hass, e.climate, "temperature");
     const current = num(hass, e.climate, "current_temperature");
-    const heatOn = climate?.state === "heat";
-    const away = climate?.attributes.preset_mode === "away";
-    const automation = e.automation ? hass.states[e.automation]?.state === "on" : false;
+    const mode = roomMode(hass, room);
     const lockOn = e.lock ? hass.states[e.lock]?.state === "on" : false;
     const refName = room.sensors.find((s) => s.is_reference)?.name ?? "reference";
 
@@ -193,15 +193,20 @@ export class RoomCard extends LitElement {
             </button>
           </div>
           <div class="toggles">
-            <button class="pill ${heatOn ? "on heat" : ""}" @click=${() => this._call("climate", "set_hvac_mode", { entity_id: e.climate, hvac_mode: heatOn ? "off" : "heat" })}>
-              <ha-icon icon=${heatOn ? "mdi:fire" : "mdi:power"}></ha-icon>${heatOn ? "Heat" : "Off"}
-            </button>
-            <button class="pill ${away ? "on away" : ""}" @click=${() => this._call("climate", "set_preset_mode", { entity_id: e.climate, preset_mode: away ? "none" : "away" })}>
-              <ha-icon icon="mdi:beach"></ha-icon>Vacation
-            </button>
-            <button class="pill ${automation ? "on" : "warn"}" title="Kill switch: when off, the TRV follows its own Salus schedule" @click=${() => this._toggle(e.automation)}>
-              <ha-icon icon=${automation ? "mdi:robot" : "mdi:robot-off"}></ha-icon>Automation ${automation ? "on" : "off"}
-            </button>
+            <div class="modes" role="radiogroup" aria-label="Room mode">
+              ${MODES.map(
+                (m) => html`<button
+                  role="radio"
+                  aria-checked=${mode === m.value}
+                  class="mode ${mode === m.value ? "active" : ""}"
+                  style="--mode-color:${m.color}"
+                  title=${m.title}
+                  @click=${() => mode !== m.value && setRoomMode(hass, room, m.value)}
+                >
+                  <ha-icon .icon=${m.icon}></ha-icon>${m.label}
+                </button>`,
+              )}
+            </div>
             ${e.lock
               ? html`<button class="pill ${lockOn ? "on" : ""}" @click=${() => this._toggle(e.lock)}>
                   <ha-icon icon=${lockOn ? "mdi:lock" : "mdi:lock-open-variant"}></ha-icon>TRV lock
@@ -489,19 +494,33 @@ export class RoomCard extends LitElement {
       color: var(--primary-color);
       background: color-mix(in srgb, var(--primary-color) 10%, transparent);
     }
-    .pill.on.heat {
-      border-color: var(--state-climate-heat-color, #ff8100);
-      color: var(--state-climate-heat-color, #ff8100);
-      background: color-mix(in srgb, var(--state-climate-heat-color, #ff8100) 10%, transparent);
+    .modes {
+      display: inline-flex;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 18px;
+      overflow: hidden;
     }
-    .pill.on.away {
-      border-color: #8e44ad;
-      color: #8e44ad;
-      background: color-mix(in srgb, #8e44ad 10%, transparent);
+    .mode {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: none;
+      border-right: 1px solid var(--divider-color, #e0e0e0);
+      padding: 6px 12px 6px 10px;
+      background: none;
+      color: var(--secondary-text-color);
+      font: inherit;
+      font-size: 0.9em;
+      cursor: pointer;
+      --mdc-icon-size: 18px;
     }
-    .pill.warn {
-      border-color: var(--warning-color, #ffa600);
-      color: var(--warning-color, #ffa600);
+    .mode:last-child {
+      border-right: none;
+    }
+    .mode.active {
+      color: var(--mode-color);
+      background: color-mix(in srgb, var(--mode-color) 14%, transparent);
+      font-weight: 600;
     }
     .reason {
       color: var(--secondary-text-color);
