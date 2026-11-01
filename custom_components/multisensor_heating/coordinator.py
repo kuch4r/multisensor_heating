@@ -319,7 +319,6 @@ class RoomController:
             min_write_interval=float(p[CONF_MIN_WRITE_INTERVAL]),
             min_setpoint=float(p[CONF_MIN_SETPOINT]),
             max_setpoint=float(p[CONF_MAX_SETPOINT]),
-            off_by_setpoint=trv_uses_presets(self.hass.states.get(self.trv)),
         )
 
     # ---- evaluation ------------------------------------------------------------------

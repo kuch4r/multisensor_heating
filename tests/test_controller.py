@@ -114,29 +114,39 @@ def test_heating_tolerance_avoids_small_rewrites():
     assert d.set_temperature is None
 
 
-def test_window_open_after_delay_turns_trv_off():
+def test_window_open_after_delay_holds_minimum_setpoint():
     sensors = [SensorInput("high", 19.0)]
     assert run(sensors, window_since=950.0).reason == "heating"
     d = run(sensors, window_since=880.0)
     assert d.reason == "window_open"
     assert d.window_blocked
-    assert d.set_hvac_mode == "off"
+    assert not d.heating
+    assert d.set_hvac_mode is None  # never switched off, stays in heat
+    assert d.set_temperature == 5.0
 
 
-def test_window_closed_restores_heat():
-    trv = replace(TRV, hvac_mode="off")
-    state = ControlState(reason="window_open", last_hvac_request="off", last_hvac_write=900.0)
+def test_window_closed_resumes_heating():
+    trv = replace(TRV, target_temperature=5.0)
+    state = ControlState(reason="window_open", last_write=900.0)
     d = run([SensorInput("high", 19.0)], trv=trv, state=state)
-    assert d.set_hvac_mode == "heat"
     assert d.reason == "heating"
+    assert d.set_temperature > 5.0
+
+
+def test_trv_switched_off_is_switched_back_to_heat():
+    """Also while blocked: an "off" TRV3RF may still be heating (HoldType 7)."""
+    trv = replace(TRV, hvac_mode="off")
+    d = run([SensorInput("high", 19.0)], trv=trv, window_since=0.0)
+    assert d.set_hvac_mode == "heat"
 
 
 def test_hvac_request_not_repeated_while_gateway_lags():
-    state = ControlState(reason="window_open", last_hvac_request="off", last_hvac_write=980.0)
-    d = run([SensorInput("high", 19.0)], window_since=0.0, state=state)
+    trv = replace(TRV, hvac_mode="auto")
+    state = ControlState(reason="heating", last_hvac_request="heat", last_hvac_write=980.0)
+    d = run([SensorInput("high", 19.0)], trv=trv, state=state)
     assert d.set_hvac_mode is None
-    d = run([SensorInput("high", 19.0)], window_since=0.0, state=state, now=1100.0)
-    assert d.set_hvac_mode == "off"
+    d = run([SensorInput("high", 19.0)], trv=trv, state=state, now=1100.0)
+    assert d.set_hvac_mode == "heat"
 
 
 def test_auto_mode_switched_to_heat():
@@ -150,19 +160,12 @@ def test_vacation_holds_fixed_temperature_ignoring_sensors():
     assert d.set_temperature == 10.0
 
 
-def test_room_off():
+def test_room_off_holds_minimum_setpoint():
     d = run([SensorInput("high", 15.0)], settings=replace(SETTINGS, hvac_on=False))
     assert d.reason == "room_off"
-    assert d.set_hvac_mode == "off"
-
-
-def test_off_by_setpoint_keeps_heat_and_holds_minimum():
-    settings = replace(SETTINGS, off_by_setpoint=True)
-    for d in (run([SensorInput("high", 15.0)], settings=replace(settings, hvac_on=False)),
-              run([SensorInput("high", 15.0)], settings=settings, window_since=880.0)):
-        assert not d.heating
-        assert d.set_hvac_mode is None  # TRV already in heat / Permanent Hold
-        assert d.set_temperature == 5.0
+    assert not d.heating
+    assert d.set_hvac_mode is None
+    assert d.set_temperature == 5.0
 
 
 def test_disabled_does_nothing():

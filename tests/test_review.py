@@ -70,8 +70,8 @@ async def test_h1_kill_switch_sends_nothing_and_stops_enforcing(hass, entry, cal
 
 async def _room_off(hass, entry, calls):
     await entry.runtime_data.async_set_setting("hvac_on", False)
-    assert hvac_modes(calls["hvac"])[-1] == "off"
-    set_trv(hass, mode="off")
+    assert calls["temp"][-1].data["temperature"] == 5.0
+    set_trv(hass, target=5.0)
     await hass.async_block_till_done()
 
 
@@ -129,7 +129,9 @@ async def test_m1_second_window_does_not_delay_block(hass, calls, freezer):
     hass.states.async_set(WINDOW2, "on", {"device_class": "window"})
     # Window 1 has been open 120 s at t=150; the 60 s tick only runs at t=180.
     await step_seconds(hass, freezer, 65)
-    assert "off" in hvac_modes(calls["hvac"]), "block delayed by the second window opening"
+    assert 5.0 in [c.data["temperature"] for c in calls["temp"]], (
+        "block delayed by the second window opening"
+    )
 
 
 # ---- M2: hvac_action while automation is disabled ----------------------------------
@@ -172,11 +174,11 @@ def test_m3_guard_fail_safe_restores_heat_after_our_own_off():
 # ---- M4: state persisted right after TRV writes ------------------------------------
 
 
-async def test_m4_state_saved_immediately_after_hvac_write(hass, entry, calls, hass_storage):
+async def test_m4_state_saved_immediately_after_trv_write(hass, entry, calls, hass_storage):
     await _room_off(hass, entry, calls)
     saved = hass_storage.get(STORE_KEY, {}).get("data", {})
-    assert saved.get("control_state", {}).get("last_hvac_request") == "off", (
-        "control state not persisted after switching the TRV off"
+    assert saved.get("control_state", {}).get("reason") == "room_off", (
+        "control state not persisted after stopping the TRV"
     )
 
 
@@ -241,15 +243,16 @@ async def test_l3_window_block_survives_restart(hass, calls, hass_storage):
         "data": {
             "settings": {},
             "sensors": {},
-            "control_state": {"heating": False, "reason": "window_open",
-                              "last_hvac_request": "off", "last_hvac_write": 0.0},
+            "control_state": {"heating": False, "reason": "window_open", "last_write": 0.0},
         },
     }
-    set_trv(hass, mode="off")
+    set_trv(hass, target=5.0)
     # After a restart the window state is restored "just now", i.e. last_changed is fresh.
     hass.states.async_set(WINDOW, "on", {"device_class": "window"})
     entry = await setup_room(hass)
-    assert "heat" not in hvac_modes(calls["hvac"]), "TRV re-enabled after restart with window open"
+    assert all(c.data["temperature"] == 5.0 for c in calls["temp"]), (
+        "heating resumed after restart with window open"
+    )
     assert hass.states.get(eid(hass, "sensor", "control_reason", entry)).state == "window_open"
 
 

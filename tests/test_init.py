@@ -94,13 +94,15 @@ async def test_window_open_blocks_after_delay(hass: HomeAssistant, entry, calls,
     freezer.tick(timedelta(seconds=125))
     async_fire_time_changed(hass, dt_util.utcnow())
     await hass.async_block_till_done()
-    assert calls["hvac"][-1].data == {"entity_id": TRV, "hvac_mode": "off"}
+    assert calls["temp"][-1].data == {"entity_id": TRV, "temperature": 5.0}
+    assert not calls["hvac"]
     assert hass.states.get(eid(hass, "binary_sensor", "window_blocked", entry)).state == "on"
 
-    set_trv(hass, mode="off")
+    set_trv(hass, target=5.0)
     hass.states.async_set(WINDOW, "off", {"device_class": "window"})
     await settle(hass, freezer)
-    assert calls["hvac"][-1].data == {"entity_id": TRV, "hvac_mode": "heat"}
+    assert calls["temp"][-1].data["temperature"] > 5.0
+    assert not calls["hvac"]
 
 
 async def test_vacation_preset(hass: HomeAssistant, entry, calls):

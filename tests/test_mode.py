@@ -24,9 +24,10 @@ async def test_mode_entity_defaults_to_heat(hass, entry):
     assert state.attributes["options"] == ["heat", "vacation", "off", "disabled"]
 
 
-async def test_off_switches_trv_off_but_keeps_control(hass, entry, calls):
+async def test_off_stops_heating_but_keeps_control(hass, entry, calls):
     await select_mode(hass, entry, "off")
-    assert calls["hvac"][-1].data == {"entity_id": TRV, "hvac_mode": "off"}
+    assert calls["temp"][-1].data == {"entity_id": TRV, "temperature": 5.0}
+    assert not calls["hvac"], "the TRV must stay in heat while controlled"
     assert entry.runtime_data.settings["enabled"] is True
     assert hass.states.get(eid(hass, "sensor", "control_reason", entry)).state == "room_off"
 
@@ -48,12 +49,12 @@ async def test_disabled_leaves_trv_as_is(hass, entry, calls):
 @pytest.mark.parametrize("start", ["off", "vacation", "disabled"])
 async def test_heat_restores_permanent_hold_control(hass, entry, calls, start):
     await select_mode(hass, entry, start)
-    set_trv(hass, mode="auto" if start == "disabled" else "off" if start == "off" else "heat")
+    set_trv(hass, mode="auto" if start == "disabled" else "heat")
     await select_mode(hass, entry, "heat")
     s = entry.runtime_data.settings
     assert (s["enabled"], s["hvac_on"], s["away"]) == (True, True, False)
     assert hass.states.get(eid(hass, "sensor", "control_reason", entry)).state == "heating"
-    if start != "vacation":
+    if start == "disabled":
         assert calls["hvac"][-1].data == {"entity_id": TRV, "hvac_mode": "heat"}
 
 
@@ -71,9 +72,10 @@ async def test_mode_reflects_other_controls(hass, entry):
 
 async def test_switching_modes_evaluates_once(hass, entry, calls):
     await select_mode(hass, entry, "off")
-    set_trv(hass, mode="off")
+    set_trv(hass, target=5.0)
     await hass.async_block_till_done()
-    n = len(calls["hvac"])
+    n = len(calls["temp"])
     await select_mode(hass, entry, "vacation")
-    # off -> vacation: one transition straight to heat at the vacation temperature
-    assert [c.data["hvac_mode"] for c in calls["hvac"][n:]] == ["heat"]
+    # off -> vacation: one write straight to the vacation temperature
+    assert [c.data["temperature"] for c in calls["temp"][n:]] == [10.0]
+    assert not calls["hvac"]
