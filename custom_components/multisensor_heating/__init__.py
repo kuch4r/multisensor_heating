@@ -42,7 +42,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     if frontend_file.exists():
         version = int(frontend_file.stat().st_mtime)
         await hass.http.async_register_static_paths(
-            [StaticPathConfig(FRONTEND_URL, str(frontend_file.parent), False)]
+            # Cacheable: the entry URL is versioned and chunk names are content-hashed.
+            [StaticPathConfig(FRONTEND_URL, str(frontend_file.parent), True)]
         )
         add_extra_js_url(hass, f"{FRONTEND_URL}/{FRONTEND_FILE}?v={version}")
     else:

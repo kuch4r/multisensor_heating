@@ -10,5 +10,9 @@ export default defineConfig({
     outDir: "custom_components/multisensor_heating/frontend",
     emptyOutDir: true,
     sourcemap: false,
+    rollupOptions: {
+      // Cards go into a hashed chunk so the entry (strategy) stays tiny.
+      output: { inlineDynamicImports: false, chunkFileNames: "multisensor-heating-[name]-[hash].js" },
+    },
   },
 });
