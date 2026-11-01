@@ -3,6 +3,17 @@
 The TRV runs its own valve loop based on ``setpoint - trv_temperature``. We steer it
 by writing a setpoint above its own reading to heat (bigger gap = more heat) and
 below its own reading to stop.
+
+Heating rules, in priority order (Heat mode):
+
+1. any sensor below its min -> heat (wins over everything below);
+2. any sensor above its max -> do not heat;
+3. any sensor below its target (- half hysteresis) -> start heating, and keep heating
+   until every sensor has reached its target (+ half hysteresis).
+
+Secondary sensors get offsets slightly below their typical difference to the main
+(reference) sensor, so normally they are satisfied just before it and the main sensor
+drives the heating; a secondary sensor only keeps it running when its area is colder.
 """
 
 from __future__ import annotations
@@ -11,6 +22,8 @@ import math
 from dataclasses import dataclass, field, replace
 
 from .const import (
+    REASON_ABOVE_MAX,
+    REASON_BELOW_MIN,
     REASON_DISABLED,
     REASON_HEATING,
     REASON_IDLE,
@@ -26,10 +39,14 @@ HVAC_HEAT = "heat"
 STEP = 0.5
 HVAC_RETRY_S = 60.0
 
-STATUS_COLD = "cold"
-STATUS_OK = "ok"
-STATUS_HOT = "hot"
+STATUS_BELOW_MIN = "below_min"
+STATUS_COLD = "cold"  # below its target: asks for heat
+STATUS_OK = "ok"  # within the hysteresis band
+STATUS_HOT = "hot"  # target reached
+STATUS_ABOVE_MAX = "above_max"
 STATUS_UNAVAILABLE = "unavailable"
+# Previous reasons in which the room was under normal sensor control (dead band keeps state).
+_SENSOR_REASONS = (REASON_HEATING, REASON_IDLE, REASON_BELOW_MIN, REASON_ABOVE_MAX)
 
 
 @dataclass(frozen=True)
@@ -134,7 +151,11 @@ def evaluate_sensor(sensor: SensorInput, settings: RoomSettings) -> SensorStatus
     if sensor.temperature is None:
         return SensorStatus(None, eff, lower, upper, STATUS_UNAVAILABLE, None)
     temp = sensor.temperature
-    if temp >= upper:
+    if temp < sensor.min_temp:
+        status = STATUS_BELOW_MIN
+    elif temp > sensor.max_temp:
+        status = STATUS_ABOVE_MAX
+    elif temp >= upper:
         status = STATUS_HOT
     elif temp <= lower:
         status = STATUS_COLD
@@ -218,12 +239,19 @@ def decide(inp: ControlInput) -> Decision:
         hvac = HVAC_HEAT if trv.hvac_mode != HVAC_OFF or prev.last_hvac_request == HVAC_OFF else None
         return result(REASON_NO_SENSORS, False, hvac, _clamp(_round_down(s.target), s))
 
-    if any(st.status == STATUS_HOT for st in available):
-        heating = False
-    elif any(st.status == STATUS_COLD for st in available):
-        heating = True
+    found = {st.status for st in available}
+    if STATUS_BELOW_MIN in found:
+        heating, reason = True, REASON_BELOW_MIN
+    elif STATUS_ABOVE_MAX in found:
+        heating, reason = False, REASON_ABOVE_MAX
+    elif STATUS_COLD in found:
+        heating, reason = True, REASON_HEATING
+    elif found == {STATUS_HOT}:
+        heating, reason = False, REASON_IDLE
     else:
-        heating = prev.heating and prev.reason in (REASON_HEATING, REASON_IDLE)
+        # Dead band: keep heating until every sensor has reached its target.
+        heating = prev.heating and prev.reason in _SENSOR_REASONS
+        reason = REASON_HEATING if heating else REASON_IDLE
 
     deficit = max(st.deficit for st in available if st.deficit is not None)
     trv_temp = trv.current_temperature
@@ -233,10 +261,10 @@ def decide(inp: ControlInput) -> Decision:
         if prev.heating and current is not None and abs(current - setpoint) <= STEP:
             # Close enough to the ideal setpoint; avoid needless writes (battery).
             setpoint = current
-        return result(REASON_HEATING, True, HVAC_HEAT, setpoint, deficit)
+        return result(reason, True, HVAC_HEAT, setpoint, deficit)
 
     setpoint = _clamp(_round_down(trv_temp - s.stop_margin), s)
     if trv.target_temperature is not None and trv.target_temperature <= trv_temp - STEP:
         # Valve is already closed by the TRV; avoid needless writes (battery).
-        return result(REASON_IDLE, False, HVAC_HEAT, trv.target_temperature, deficit)
-    return result(REASON_IDLE, False, HVAC_HEAT, setpoint, deficit)
+        return result(reason, False, HVAC_HEAT, trv.target_temperature, deficit)
+    return result(reason, False, HVAC_HEAT, setpoint, deficit)

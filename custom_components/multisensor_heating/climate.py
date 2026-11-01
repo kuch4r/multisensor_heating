@@ -19,6 +19,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
+    REASON_ABOVE_MAX,
+    REASON_BELOW_MIN,
     REASON_DISABLED,
     REASON_HEATING,
     REASON_IDLE,
@@ -79,9 +81,9 @@ class RoomClimate(RoomEntity, ClimateEntity):
         d = self.controller.decision
         if d is None:
             return HVACAction.IDLE
-        if d.reason == REASON_HEATING:
+        if d.reason in (REASON_HEATING, REASON_BELOW_MIN):
             return HVACAction.HEATING
-        if d.reason in (REASON_IDLE, REASON_VACATION, REASON_NO_SENSORS):
+        if d.reason in (REASON_IDLE, REASON_ABOVE_MAX, REASON_VACATION, REASON_NO_SENSORS):
             return HVACAction.IDLE
         if d.reason in (REASON_DISABLED, REASON_TRV_UNAVAILABLE):
             # The TRV runs on its own; report what it is actually doing.

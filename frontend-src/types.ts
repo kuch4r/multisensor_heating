@@ -65,6 +65,6 @@ export interface SensorStatus {
   effective_target: number;
   lower: number;
   upper: number;
-  status: "cold" | "ok" | "hot" | "unavailable";
+  status: "below_min" | "cold" | "ok" | "hot" | "above_max" | "unavailable";
   deficit: number | null;
 }

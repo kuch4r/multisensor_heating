@@ -87,7 +87,9 @@
           "room_off": "Off",
           "no_sensors": "No sensors (fail-safe)",
           "heating": "Heating",
-          "idle": "Idle"
+          "idle": "Idle",
+          "below_min": "Below minimum (heating)",
+          "above_max": "Above maximum (not heating)"
         }
       }
     },

@@ -28,6 +28,16 @@ var s = (e, t = 1) => e == null || !Number.isFinite(e) ? "–" : e.toFixed(t), c
 		color: "var(--success-color, #43a047)",
 		icon: "mdi:check-circle-outline"
 	},
+	below_min: {
+		label: "Below min",
+		color: "var(--state-climate-heat-color, #ff8100)",
+		icon: "mdi:thermometer-alert"
+	},
+	above_max: {
+		label: "Above max",
+		color: "var(--error-color, #db4437)",
+		icon: "mdi:thermometer-alert"
+	},
 	window_open: {
 		label: "Window open",
 		color: "var(--info-color, #039be5)",
@@ -64,6 +74,11 @@ var s = (e, t = 1) => e == null || !Number.isFinite(e) ? "–" : e.toFixed(t), c
 		icon: "mdi:help-circle-outline"
 	}
 }, d = {
+	below_min: {
+		label: "Below min",
+		color: "var(--info-color, #039be5)",
+		icon: "mdi:thermometer-alert"
+	},
 	cold: {
 		label: "Cold",
 		color: "var(--info-color, #039be5)",
@@ -75,9 +90,14 @@ var s = (e, t = 1) => e == null || !Number.isFinite(e) ? "–" : e.toFixed(t), c
 		icon: "mdi:check"
 	},
 	hot: {
-		label: "Hot",
+		label: "Reached",
+		color: "var(--success-color, #43a047)",
+		icon: "mdi:check-all"
+	},
+	above_max: {
+		label: "Above max",
 		color: "var(--error-color, #db4437)",
-		icon: "mdi:fire-alert"
+		icon: "mdi:thermometer-alert"
 	},
 	unavailable: {
 		label: "N/A",

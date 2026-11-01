@@ -47,6 +47,8 @@ export interface StatusInfo {
 export const STATUS: Record<string, StatusInfo> = {
   heating: { label: "Heating", color: "var(--state-climate-heat-color, #ff8100)", icon: "mdi:fire" },
   idle: { label: "Idle", color: "var(--success-color, #43a047)", icon: "mdi:check-circle-outline" },
+  below_min: { label: "Below min", color: "var(--state-climate-heat-color, #ff8100)", icon: "mdi:thermometer-alert" },
+  above_max: { label: "Above max", color: "var(--error-color, #db4437)", icon: "mdi:thermometer-alert" },
   window_open: { label: "Window open", color: "var(--info-color, #039be5)", icon: "mdi:window-open-variant" },
   room_off: { label: "Off", color: "var(--state-inactive-color, #9e9e9e)", icon: "mdi:power" },
   vacation: { label: "Vacation", color: "#8e44ad", icon: "mdi:beach" },
@@ -57,9 +59,11 @@ export const STATUS: Record<string, StatusInfo> = {
 };
 
 export const SENSOR_STATUS: Record<string, StatusInfo> = {
+  below_min: { label: "Below min", color: "var(--info-color, #039be5)", icon: "mdi:thermometer-alert" },
   cold: { label: "Cold", color: "var(--info-color, #039be5)", icon: "mdi:snowflake" },
   ok: { label: "OK", color: "var(--success-color, #43a047)", icon: "mdi:check" },
-  hot: { label: "Hot", color: "var(--error-color, #db4437)", icon: "mdi:fire-alert" },
+  hot: { label: "Reached", color: "var(--success-color, #43a047)", icon: "mdi:check-all" },
+  above_max: { label: "Above max", color: "var(--error-color, #db4437)", icon: "mdi:thermometer-alert" },
   unavailable: { label: "N/A", color: "var(--state-inactive-color, #9e9e9e)", icon: "mdi:help" },
 };
 

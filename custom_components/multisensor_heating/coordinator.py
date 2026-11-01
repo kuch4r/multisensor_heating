@@ -451,7 +451,7 @@ class RoomController:
         return state.name if state is not None else sensor_id
 
     def offset_summary(self, sensor_id: str) -> DeltaSummary:
-        return self.stats.summary(sensor_id, dt_util.utcnow().timestamp())
+        return self.stats.summary(sensor_id, dt_util.utcnow().timestamp(), self.reference)
 
     async def _async_seed_stats(self) -> None:
         end = dt_util.utcnow()

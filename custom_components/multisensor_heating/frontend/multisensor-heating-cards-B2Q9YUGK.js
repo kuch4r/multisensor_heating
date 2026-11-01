@@ -1,4 +1,4 @@
-import { _ as e, a as t, c as n, d as r, f as i, g as a, h as o, i as s, l as c, m as l, n as u, o as d, p as f, r as p, s as m, t as h, u as g } from "./multisensor-heating-api-D21jmt_P.js";
+import { _ as e, a as t, c as n, d as r, f as i, g as a, h as o, i as s, l as c, m as l, n as u, o as d, p as f, r as p, s as m, t as h, u as g } from "./multisensor-heating-api-jbnsX1sL.js";
 //#region node_modules/@lit/reactive-element/css-tag.js
 var _ = globalThis, v = _.ShadowRoot && (_.ShadyCSS === void 0 || _.ShadyCSS.nativeShadow) && "adoptedStyleSheets" in Document.prototype && "replace" in CSSStyleSheet.prototype, y = Symbol(), b = /* @__PURE__ */ new WeakMap(), ee = class {
 	constructor(e, t, n) {
@@ -1230,8 +1230,10 @@ var Be = class extends J {
     }
   `;
 }, He = 3e5, Ue = {
-	heating: "At least one sensor is below its target — the TRV setpoint is raised above the TRV's own reading.",
-	idle: "Targets reached (or a sensor is above its upper limit) — the TRV setpoint is kept below the TRV's own reading.",
+	heating: "A sensor is below its target — heating until every sensor has reached its target.",
+	idle: "Every sensor has reached its target — the TRV setpoint is kept below the TRV's own reading.",
+	below_min: "A sensor is below its minimum — heating regardless of the other sensors.",
+	above_max: "A sensor is above its maximum — heating is blocked until it cools down.",
 	window_open: "A window has been open longer than the delay — heating is stopped.",
 	room_off: "The room is switched off — heating is stopped.",
 	vacation: "Vacation mode — the TRV holds the vacation temperature, sensors are ignored.",
@@ -1423,11 +1425,11 @@ var Be = class extends J {
           </table>
         </div>
         <div class="hint">
-          <b>How to tune:</b> effective target = room target + offset, clamped into [min, max].
-          "Suggested offset" is how much warmer (+) or colder (−) a sensor typically reads than the
-          reference sensor — applying it makes the reference sensor land on the room target.
-          Keep min/max wide as a safety net in case an offset is wrong. Heating runs when any sensor
-          is cold and stops as soon as any sensor is hot.
+          <b>How it works:</b> effective target = room target + offset. Heating starts when any
+          sensor is below its target and runs until every sensor has reached it. "Suggested offset"
+          is the typical difference to the reference sensor minus 0.3 °C, so secondary sensors are
+          satisfied just before the reference sensor, which then drives the heating. Min and max are
+          hard limits: below min always heats, above max never heats (below min wins).
         </div>
       </div>
     `;

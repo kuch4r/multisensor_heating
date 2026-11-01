@@ -55,6 +55,8 @@ REASON_ROOM_OFF: Final = "room_off"
 REASON_NO_SENSORS: Final = "no_sensors"
 REASON_HEATING: Final = "heating"
 REASON_IDLE: Final = "idle"
+REASON_BELOW_MIN: Final = "below_min"
+REASON_ABOVE_MAX: Final = "above_max"
 REASONS: Final = [
     REASON_DISABLED,
     REASON_TRV_UNAVAILABLE,
@@ -64,6 +66,8 @@ REASONS: Final = [
     REASON_NO_SENSORS,
     REASON_HEATING,
     REASON_IDLE,
+    REASON_BELOW_MIN,
+    REASON_ABOVE_MAX,
 ]
 
 FRONTEND_URL: Final = "/multisensor_heating_frontend"

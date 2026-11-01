@@ -1,7 +1,9 @@
 """Rolling statistics of each sensor vs. the reference sensor -> suggested offsets.
 
-If a sensor typically reads ``d`` warmer than the reference sensor, its effective
-target should be ``room_target + d`` so the reference ends up at the room target.
+If a secondary sensor typically reads ``d`` warmer than the reference sensor, its
+suggested offset is ``d - SECONDARY_MARGIN``: it is then normally satisfied just before
+the reference sensor, so the reference drives the heating and the secondary sensor only
+keeps it running when its own area is colder than usual.
 Samples are taken at a fixed interval, so the mean is time-weighted.
 """
 
@@ -9,6 +11,8 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+
+SECONDARY_MARGIN = 0.3
 
 
 @dataclass(frozen=True)
@@ -65,13 +69,15 @@ class OffsetStats:
             self.add(ts, dict(current), reference)
             ts += self.sample_s
 
-    def summary(self, key: str, now: float) -> DeltaSummary:
+    def summary(self, key: str, now: float, reference: str | None = None) -> DeltaSummary:
+        """Delta summary; the suggestion includes the margin unless ``key`` is the reference."""
         self._prune(now)
         deltas = [d for _, d in self._samples.get(key, ())]
         if not deltas:
             return DeltaSummary(None, None, None, None, 0)
         mean = sum(deltas) / len(deltas)
-        suggested = round(mean, 1) if len(deltas) >= self.min_samples else None
+        margin = 0.0 if key == reference else SECONDARY_MARGIN
+        suggested = round(mean - margin, 1) if len(deltas) >= self.min_samples else None
         return DeltaSummary(suggested, round(mean, 2), round(min(deltas), 2),
                             round(max(deltas), 2), len(deltas))
 

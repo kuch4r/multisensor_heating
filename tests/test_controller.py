@@ -52,35 +52,75 @@ def test_min_boost_and_rounding_up():
     assert d.set_temperature == 20.5
 
 
-def test_hot_wins_over_cold():
+def test_cold_wins_over_reached():
+    """Heating comes first: one sensor below its target keeps heating on, even if
+    another sensor has already passed its target."""
     d = run([SensorInput("trv", 19.0), SensorInput("high", 21.5)])
-    assert d.reason == "idle"
-    assert not d.heating
-    assert d.set_temperature == 17.0
+    assert d.reason == "heating"
+    assert d.heating
     assert d.sensors["high"].status == "hot"
     assert d.sensors["trv"].status == "cold"
 
 
-def test_dead_band_keeps_previous_state():
-    sensors = [SensorInput("high", 21.0)]
+def test_stops_only_when_every_sensor_reached_its_target():
+    sensors = [SensorInput("trv", 21.3), SensorInput("high", 21.5)]
+    heating = ControlState(heating=True, reason="heating", last_write=900.0)
+    d = run(sensors, state=heating)
+    assert d.reason == "idle"
+    assert not d.heating
+    assert d.set_temperature == 17.0
+
+
+def test_dead_band_keeps_heating_until_all_reached():
+    # "high" reached its target, "trv" is inside its hysteresis band (not reached yet).
+    sensors = [SensorInput("trv", 21.0), SensorInput("high", 21.5)]
     heating = ControlState(heating=True, reason="heating", last_write=900.0)
     assert run(sensors, state=heating).heating
     idle = ControlState(heating=False, reason="idle")
     assert not run(sensors, state=idle).heating
 
 
-def test_safety_max_overrides_offset():
-    # Offset says target 23, but absolute max 21.5 is reached -> stop.
-    d = run([SensorInput("high", 21.6, offset=2.0, max_temp=21.5)])
-    assert d.reason == "idle"
+def test_above_max_blocks_heating():
+    # Offset says target 23 and another sensor is cold, but max 21.5 is crossed -> stop.
+    d = run([SensorInput("trv", 17.0), SensorInput("high", 21.6, offset=2.0, max_temp=21.5)])
+    assert d.reason == "above_max"
+    assert not d.heating
+    assert d.sensors["high"].status == "above_max"
 
 
-def test_safety_min_overrides_offset():
-    # Offset says target 18, but absolute min 20 not reached -> heat.
-    d = run([SensorInput("high", 19.5, offset=-3.0, min_temp=20.0)])
-    assert d.reason == "heating"
+def test_below_min_forces_heating():
+    # Offset says target 18 and another sensor is far above target, but min 20 not reached.
+    d = run([SensorInput("trv", 25.0), SensorInput("high", 19.5, offset=-3.0, min_temp=20.0)])
+    assert d.reason == "below_min"
+    assert d.heating
+    assert d.sensors["high"].status == "below_min"
     assert d.sensors["high"].effective_target == 20.25
-    assert d.deficit == 0.75
+
+
+def test_below_min_wins_over_above_max():
+    d = run([SensorInput("trv", 26.0, max_temp=25.0), SensorInput("high", 15.0, min_temp=16.0)])
+    assert d.reason == "below_min"
+    assert d.heating
+
+
+def test_heating_continues_to_target_after_min_recovered():
+    # Back above min (16) but still below target: keep heating until the target is reached.
+    state = ControlState(heating=True, reason="below_min", last_write=900.0)
+    d = run([SensorInput("high", 16.5, min_temp=16.0)], state=state)
+    assert d.reason == "heating"
+    assert d.heating
+
+
+def test_vacation_ignores_min_and_max():
+    d = run([SensorInput("high", 5.0, min_temp=16.0)], settings=replace(SETTINGS, away=True))
+    assert d.reason == "vacation"
+    assert d.set_temperature == 10.0
+
+
+def test_off_and_window_ignore_min():
+    sensors = [SensorInput("high", 5.0, min_temp=16.0)]
+    assert run(sensors, settings=replace(SETTINGS, hvac_on=False)).reason == "room_off"
+    assert run(sensors, window_since=0.0).reason == "window_open"
 
 
 def test_setpoint_clamped():

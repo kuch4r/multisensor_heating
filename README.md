@@ -15,7 +15,10 @@ more heat) or **below** it (stop).
   `sensor` with device class temperature) + any number of window/door sensors.
 - **Room target** with a per-sensor **offset** (main control) and per-sensor **min/max safety
   range** (backup in case an offset is wrong).
-- **"Too hot wins"**: heating runs while any sensor is cold and stops as soon as any sensor is hot.
+- **Heating comes first**: heating starts when any sensor is below its target and runs until
+  every sensor has reached it. The reference (main) sensor drives the heating; secondary
+  sensors only keep it running when their area is colder than usual.
+- **Hard min/max per sensor**: below min always heats, above max never heats (below min wins).
 - **Proportional heating**: `TRV setpoint = TRV temp + max(min boost, gain × deficit)`.
 - **Room mode** per room (selector on the dashboard and `select.<room>_mode`):
 
@@ -106,14 +109,22 @@ For every sensor *i*:
 
 ```
 effective_target_i = clamp(room_target + offset_i, min_i + h/2, max_i − h/2)
-cold_i  : temp_i ≤ effective_target_i − h/2
-hot_i   : temp_i ≥ effective_target_i + h/2          (h = hysteresis, default 0.5 °C)
-deficit = max over sensors of (effective_target_i − temp_i)
+cold_i    : temp_i ≤ effective_target_i − h/2
+reached_i : temp_i ≥ effective_target_i + h/2        (h = hysteresis, default 0.5 °C)
+deficit   = max over sensors of (effective_target_i − temp_i)
 ```
 
-- any sensor hot → **idle**: TRV setpoint = TRV temp − stop margin (2 °C);
-- else any sensor cold → **heating**: TRV setpoint = TRV temp + max(min boost 1 °C, gain × deficit);
-- else → keep the previous state (dead band).
+In priority order:
+
+1. any sensor below its **min** → **heating** (`below_min`), whatever the other sensors say;
+2. any sensor above its **max** → **not heating** (`above_max`);
+3. any sensor cold → **heating**;
+4. every sensor reached → **idle**;
+5. otherwise → keep the previous state (dead band), i.e. heating continues until every
+   sensor has reached its target.
+
+Heating: TRV setpoint = TRV temp + max(min boost 1 °C, gain × deficit). Idle: TRV setpoint =
+TRV temp − stop margin (2 °C). Off, open windows and vacation ignore min/max.
 
 Setpoints are rounded to 0.5 °C and clamped to 5–30 °C. Order of precedence: automation off →
 TRV unavailable → window open → room off → vacation → normal control. If no sensor has data,
@@ -126,11 +137,12 @@ before an HA restart keeps blocking if it is still open.
 ## Tuning guide
 
 1. Start with all offsets at 0 and a wide range (min 5, max 30) on every sensor.
-2. After a day, open the room card. **Suggested offset** shows how much warmer (+) or colder (−)
-   each sensor typically reads than the reference sensor. Press **Apply**. The TRV usually
-   ends up at around −1 to −3 °C.
-3. Set **min/max** a bit outside the normal range as a safety net, e.g. reference sensor
-   min 18 / max 23.
+2. After a day, open the room card. **Suggested offset** is how much warmer (+) or colder (−)
+   each secondary sensor typically reads than the reference sensor, minus 0.3 °C, so it is
+   satisfied just before the reference sensor. Press **Apply**; you can still set any offset
+   by hand. The TRV usually ends up at around −1.5 to −3.5 °C. Until its offset is applied,
+   the TRV reading (offset 0) keeps the heating running longer than needed.
+3. Set **min/max** as hard limits, e.g. reference sensor min 18 / max 23.
 4. If rooms heat up too slowly, raise **gain** (Tuning section). If they overshoot, lower it
    or raise **hysteresis**.
 5. Use HA automations or a scheduler card to change the room climate target over the day.

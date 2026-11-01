@@ -69,12 +69,20 @@ async def settle(hass: HomeAssistant, freezer) -> None:
     await hass.async_block_till_done()
 
 
-async def test_stops_when_sensor_hot(hass: HomeAssistant, freezer, entry, calls):
+async def test_stops_when_every_sensor_reached_target(hass: HomeAssistant, freezer, entry, calls):
+    set_trv(hass, current=21.3, target=23.0)
+    hass.states.async_set(HIGH, "21.5", {"device_class": "temperature"})
+    await settle(hass, freezer)
+    assert calls["temp"][-1].data["temperature"] == 19.0
+    assert hass.states.get(eid(hass, "binary_sensor", "heating", entry)).state == "off"
+
+
+async def test_keeps_heating_while_trv_reading_below_its_target(hass, freezer, entry, calls):
+    """The TRV reading is a secondary sensor: with offset 0 it still asks for heat."""
     set_trv(hass, current=19.0, target=21.0)
     hass.states.async_set(HIGH, "21.5", {"device_class": "temperature"})
     await settle(hass, freezer)
-    assert calls["temp"][-1].data["temperature"] == 17.0
-    assert hass.states.get(eid(hass, "binary_sensor", "heating", entry)).state == "off"
+    assert hass.states.get(eid(hass, "binary_sensor", "heating", entry)).state == "on"
 
 
 async def test_offset_number_changes_target(hass: HomeAssistant, entry, calls):
@@ -84,7 +92,8 @@ async def test_offset_number_changes_target(hass: HomeAssistant, entry, calls):
         blocking=True,
     )
     assert hass.states.get(eid(hass, "sensor", f"{HIGH}_effective_target", entry)).state == "19.5"
-    assert hass.states.get(eid(hass, "sensor", "control_reason", entry)).state == "idle"
+    climate = hass.states.get(eid(hass, "climate", "climate", entry))
+    assert climate.attributes["sensors"][HIGH]["status"] == "hot"  # 20.0 >= 19.5 + 0.25
 
 
 async def test_window_open_blocks_after_delay(hass: HomeAssistant, entry, calls, freezer):

@@ -29,8 +29,10 @@ export interface RoomCardConfig {
 const HISTORY_REFRESH_MS = 5 * 60_000;
 
 const REASON_TEXT: Record<string, string> = {
-  heating: "At least one sensor is below its target — the TRV setpoint is raised above the TRV's own reading.",
-  idle: "Targets reached (or a sensor is above its upper limit) — the TRV setpoint is kept below the TRV's own reading.",
+  heating: "A sensor is below its target — heating until every sensor has reached its target.",
+  idle: "Every sensor has reached its target — the TRV setpoint is kept below the TRV's own reading.",
+  below_min: "A sensor is below its minimum — heating regardless of the other sensors.",
+  above_max: "A sensor is above its maximum — heating is blocked until it cools down.",
   window_open: "A window has been open longer than the delay — heating is stopped.",
   room_off: "The room is switched off — heating is stopped.",
   vacation: "Vacation mode — the TRV holds the vacation temperature, sensors are ignored.",
@@ -280,11 +282,11 @@ export class RoomCard extends LitElement {
           </table>
         </div>
         <div class="hint">
-          <b>How to tune:</b> effective target = room target + offset, clamped into [min, max].
-          "Suggested offset" is how much warmer (+) or colder (−) a sensor typically reads than the
-          reference sensor — applying it makes the reference sensor land on the room target.
-          Keep min/max wide as a safety net in case an offset is wrong. Heating runs when any sensor
-          is cold and stops as soon as any sensor is hot.
+          <b>How it works:</b> effective target = room target + offset. Heating starts when any
+          sensor is below its target and runs until every sensor has reached it. "Suggested offset"
+          is the typical difference to the reference sensor minus 0.3 °C, so secondary sensors are
+          satisfied just before the reference sensor, which then drives the heating. Min and max are
+          hard limits: below min always heats, above max never heats (below min wins).
         </div>
       </div>
     `;
