@@ -1,4 +1,4 @@
-import { _ as e, l as t } from "./multisensor-heating-api-jbnsX1sL.js";
+import { _ as e, l as t } from "./multisensor-heating-api-WzepAuA1.js";
 //#region frontend-src/strategy.ts
 var n = class extends HTMLElement {
 	static async generate(n, r) {
@@ -43,5 +43,5 @@ r.customCards = r.customCards ?? [], r.customCards.push({
 	name: "Multi-Sensor Heating: Room",
 	description: "Room status, sensor offsets/ranges with suggestions, and history chart.",
 	preview: !1
-}), import("./multisensor-heating-cards-B2Q9YUGK.js").catch((e) => console.error("Multi-Sensor Heating: failed to load cards", e));
+}), import("./multisensor-heating-cards-DxEArV0Z.js").catch((e) => console.error("Multi-Sensor Heating: failed to load cards", e));
 //#endregion

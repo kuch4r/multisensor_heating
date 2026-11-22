@@ -57,6 +57,7 @@ from .const import (
     MODE_HEAT,
     MODE_OFF,
     MODE_VACATION,
+    PRIMARY_DEMAND_REASONS,
     REASON_NO_SENSORS,
     REASON_WINDOW_OPEN,
     STATS_SAMPLE_S,
@@ -71,6 +72,7 @@ from .controller import (
     SensorInput,
     TrvState,
     decide,
+    window_recovery_seconds,
 )
 from .recorder_util import async_get_history, state_temperature
 from .stats import DeltaSummary, OffsetStats
@@ -148,6 +150,8 @@ class RoomController:
         self._last_sample: float = 0.0
         self._last_lock_attempt: float = 0.0
         self._restored_window_block = False
+        self._window_open_since: float | None = None
+        self._persist_window_state = False
         self._debouncer = Debouncer(
             hass, _LOGGER, cooldown=DEBOUNCE_S, immediate=True, function=self.async_evaluate
         )
@@ -174,6 +178,7 @@ class RoomController:
         self.control_state = ControlState(
             **{k: v for k, v in stored.get("control_state", {}).items() if k in names}
         )
+        self._window_open_since = stored.get("window_open_since")
         # A window that blocked heating before a restart keeps blocking while still open.
         self._restored_window_block = self.control_state.reason == REASON_WINDOW_OPEN
 
@@ -191,10 +196,15 @@ class RoomController:
         self.entry.async_create_background_task(
             self.hass, self._async_seed_stats(), f"{DOMAIN}_seed_stats_{self.entry.entry_id}"
         )
+        self._sync_window_state()
         self._schedule_window_timer()
+        self._rooms.add(self)
 
     async def async_unload(self) -> None:
         """Stop controlling; the TRV is left as it is."""
+        self._rooms.discard(self)
+        if self.has_primary_demand:
+            self._reevaluate_other_rooms()
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
@@ -208,6 +218,7 @@ class RoomController:
             "settings": self.settings,
             "sensors": self.sensor_settings,
             "control_state": asdict(self.control_state),
+            "window_open_since": self._window_open_since,
         }
 
     def _save(self) -> None:
@@ -228,8 +239,41 @@ class RoomController:
     @callback
     def _handle_state_change(self, event: Event[EventStateChangedData]) -> None:
         if event.data["entity_id"] in self.window_sensors:
+            self._sync_window_state(
+                event.data["old_state"] is not None
+                and event.data["old_state"].state == STATE_ON
+                and event.data["new_state"] is not None
+                and event.data["new_state"].state != STATE_ON
+            )
             self._schedule_window_timer()
         self._debouncer.async_schedule_call()
+
+    @callback
+    def _sync_window_state(self, closing: bool = False) -> None:
+        now = dt_util.utcnow().timestamp()
+        opened = [
+            state.last_changed.timestamp()
+            for wid in self.window_sensors
+            if (state := self.hass.states.get(wid)) is not None and state.state == STATE_ON
+        ]
+        if opened:
+            since = min(opened)
+            if self._restored_window_block and self._window_open_since is None:
+                since = min(since, now - float(self.params[CONF_WINDOW_DELAY]) - 1)
+            if self._window_open_since is None or since < self._window_open_since:
+                self._window_open_since = since
+                self._persist_window_state = True
+        elif self._window_open_since is not None:
+            if closing:
+                grace = window_recovery_seconds(now - self._window_open_since)
+                if grace:
+                    deadline = max(self.control_state.window_grace_until or 0, now + grace)
+                    self.control_state = replace(self.control_state, window_grace_until=deadline)
+            self._window_open_since = None
+            self._restored_window_block = False
+            self._persist_window_state = True
+        else:
+            self._restored_window_block = False
 
     @callback
     def _cancel_window_timer(self) -> None:
@@ -239,17 +283,24 @@ class RoomController:
 
     @callback
     def _schedule_window_timer(self) -> None:
-        """Evaluate exactly when the earliest-opened window reaches the delay."""
+        """Evaluate at the next open-delay or recovery deadline."""
         self._cancel_window_timer()
-        since = self.window_open_since()
-        if since is None:
-            return
-        due = since + float(self.params[CONF_WINDOW_DELAY]) - dt_util.utcnow().timestamp()
-        self._window_timer = async_call_later(self.hass, max(due, 0) + 1, self._handle_window_timer)
+        now = dt_util.utcnow().timestamp()
+        deadlines = []
+        if (since := self.window_open_since()) is not None:
+            deadlines.append(since + float(self.params[CONF_WINDOW_DELAY]))
+        if self.control_state.window_grace_until is not None:
+            deadlines.append(self.control_state.window_grace_until)
+        upcoming = [deadline for deadline in deadlines if deadline > now]
+        if upcoming:
+            self._window_timer = async_call_later(
+                self.hass, min(upcoming) - now + 1, self._handle_window_timer
+            )
 
     async def _handle_window_timer(self, _now: Any = None) -> None:
         self._window_timer = None
         await self.async_evaluate()
+        self._schedule_window_timer()
 
     async def _handle_tick(self, _now: Any = None) -> None:
         now = dt_util.utcnow().timestamp()
@@ -272,19 +323,7 @@ class RoomController:
         return temps
 
     def window_open_since(self) -> float | None:
-        opened = [
-            state.last_changed.timestamp()
-            for wid in self.window_sensors
-            if (state := self.hass.states.get(wid)) is not None and state.state == STATE_ON
-        ]
-        if not opened:
-            self._restored_window_block = False
-            return None
-        if self._restored_window_block:
-            # Back-dated by 1 s so it already counts as blocked for the caller's `now`.
-            blocked_since = dt_util.utcnow().timestamp() - float(self.params[CONF_WINDOW_DELAY]) - 1
-            return min(*opened, blocked_since)
-        return min(opened)
+        return self._window_open_since
 
     def _trv_state(self) -> TrvState:
         state = self.hass.states.get(self.trv)
@@ -344,9 +383,14 @@ class RoomController:
                     trv=self._trv_state(),
                     sensors=sensors,
                     window_open_since=self.window_open_since(),
+                    reference=self.reference,
                     state=self.control_state,
+                    primary_demand=any(
+                        room.has_primary_demand for room in self._rooms if room is not self
+                    ),
                 )
             )
+            had_demand = self.has_primary_demand
             state = decision.state
             wrote = False
             if decision.set_hvac_mode is not None:
@@ -366,8 +410,14 @@ class RoomController:
                 _LOGGER.debug("%s: %s -> hvac=%s setpoint=%s", self.name, decision.reason,
                               decision.set_hvac_mode, decision.set_temperature)
             self.decision = decision
-            self.control_state = state
-            if wrote:
+            if self.has_primary_demand != had_demand:
+                self._reevaluate_other_rooms()
+            self.control_state = replace(
+                state, window_grace_until=self.control_state.window_grace_until
+            )
+            persist_window = self._persist_window_state
+            self._persist_window_state = False
+            if wrote or persist_window:
                 await self._store.async_save(self._data())
             else:
                 self._save()
@@ -405,6 +455,25 @@ class RoomController:
             ir.async_delete_issue(self.hass, DOMAIN, issue_id)
 
     # ---- setters used by entities ----------------------------------------------------
+
+    # ---- shared heat source (F-21) ---------------------------------------------------
+
+    @property
+    def _rooms(self) -> set[RoomController]:
+        """Active rooms of this integration; they share one heat source."""
+        return self.hass.data.setdefault(DOMAIN, set())
+
+    @property
+    def has_primary_demand(self) -> bool:
+        """Heating on its own sensors (opportunistic heating does not count)."""
+        d = self.decision
+        return d is not None and d.heating and d.reason in PRIMARY_DEMAND_REASONS
+
+    @callback
+    def _reevaluate_other_rooms(self) -> None:
+        for room in self._rooms:
+            if room is not self:
+                room._debouncer.async_schedule_call()
 
     @property
     def mode(self) -> str:

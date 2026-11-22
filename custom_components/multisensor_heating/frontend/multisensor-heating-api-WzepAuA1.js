@@ -38,10 +38,20 @@ var s = (e, t = 1) => e == null || !Number.isFinite(e) ? "–" : e.toFixed(t), c
 		color: "var(--error-color, #db4437)",
 		icon: "mdi:thermometer-alert"
 	},
+	opportunistic: {
+		label: "Opportunistic",
+		color: "var(--state-climate-heat-color, #ff8100)",
+		icon: "mdi:fire-circle"
+	},
 	window_open: {
 		label: "Window open",
 		color: "var(--info-color, #039be5)",
 		icon: "mdi:window-open-variant"
+	},
+	window_recovery: {
+		label: "Window recovery",
+		color: "var(--info-color, #039be5)",
+		icon: "mdi:window-closed-variant"
 	},
 	room_off: {
 		label: "Off",

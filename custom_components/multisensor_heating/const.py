@@ -50,6 +50,7 @@ STATS_SAMPLE_S: Final = 300
 REASON_DISABLED: Final = "disabled"
 REASON_TRV_UNAVAILABLE: Final = "trv_unavailable"
 REASON_WINDOW_OPEN: Final = "window_open"
+REASON_WINDOW_RECOVERY: Final = "window_recovery"
 REASON_VACATION: Final = "vacation"
 REASON_ROOM_OFF: Final = "room_off"
 REASON_NO_SENSORS: Final = "no_sensors"
@@ -57,10 +58,14 @@ REASON_HEATING: Final = "heating"
 REASON_IDLE: Final = "idle"
 REASON_BELOW_MIN: Final = "below_min"
 REASON_ABOVE_MAX: Final = "above_max"
+REASON_OPPORTUNISTIC: Final = "opportunistic"
+# Heating on the room's own sensors; other rooms may heat opportunistically meanwhile.
+PRIMARY_DEMAND_REASONS: Final = (REASON_HEATING, REASON_BELOW_MIN)
 REASONS: Final = [
     REASON_DISABLED,
     REASON_TRV_UNAVAILABLE,
     REASON_WINDOW_OPEN,
+    REASON_WINDOW_RECOVERY,
     REASON_VACATION,
     REASON_ROOM_OFF,
     REASON_NO_SENSORS,
@@ -68,6 +73,7 @@ REASONS: Final = [
     REASON_IDLE,
     REASON_BELOW_MIN,
     REASON_ABOVE_MAX,
+    REASON_OPPORTUNISTIC,
 ]
 
 FRONTEND_URL: Final = "/multisensor_heating_frontend"

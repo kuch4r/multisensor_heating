@@ -15,11 +15,16 @@ more heat) or **below** it (stop).
   `sensor` with device class temperature) + any number of window/door sensors.
 - **Room target** with a per-sensor **offset** (main control) and per-sensor **min/max safety
   range** (backup in case an offset is wrong).
-- **Heating comes first**: heating starts when any sensor is below its target and runs until
-  every sensor has reached it. The reference (main) sensor drives the heating; secondary
-  sensors only keep it running when their area is colder than usual.
-- **Hard min/max per sensor**: below min always heats, above max never heats (below min wins).
+- **Reference-first control**: a cold reference sensor requests heat even if an additional
+  sensor is above max. A reference above max stops heating even if another sensor is cold.
+  When the reference is neither cold nor above max, any additional sensor above max stops
+  heating before a cold additional sensor can request it.
+- **Hard min/max per sensor**: below min counts as a heating request; above max blocks
+  heating unless the reference sensor itself is cold or below min.
 - **Proportional heating**: `TRV setpoint = TRV temp + max(min boost, gain × deficit)`.
+- **Opportunistic heating**: all rooms are assumed to share one boiler. While any room heats
+  on its own sensors, an idle room whose reference sensor is below its target heats along
+  (normal curve, normal stop rules) and stops as soon as no room calls for heat on its own.
 - **Room mode** per room (selector on the dashboard and `select.<room>_mode`):
 
   | Mode | TRV | Controlled by this integration |
@@ -36,8 +41,11 @@ more heat) or **below** it (stop).
   `heat` / `Permanent Hold`. TRVs exposing the Salus `Permanent Hold` preset are set via
   that preset, all others via HVAC mode `heat`. Disabling or deleting a room leaves its
   TRV as it is.
-- **Window blocking**: any window open longer than 2 min (configurable) → TRV held at the
-  minimum setpoint; closed → normal control resumes.
+- **Window blocking and recovery**: any window open longer than 2 min (configurable) →
+  TRV held at the minimum setpoint. After all windows close, an opening shorter than
+  1 min resumes control immediately; otherwise the TRV stays at minimum for 5 min
+  (1 min open), increasing linearly to 20 min (30 min open), capped at 20 min.
+  Overlapping open contacts count as one opening; recovery survives HA restarts.
 - **Vacation preset**: TRV holds a fixed temperature (default 10 °C), sensors ignored.
 - **TRV child lock** (optional) plus automatic correction of manual setpoint changes.
 - **Suggested offsets** computed from the last 24 h of data relative to a **reference sensor**.
@@ -116,18 +124,24 @@ deficit   = max over sensors of (effective_target_i − temp_i)
 
 In priority order:
 
-1. any sensor below its **min** → **heating** (`below_min`), whatever the other sensors say;
-2. any sensor above its **max** → **not heating** (`above_max`);
-3. any sensor cold → **heating**;
-4. every sensor reached → **idle**;
-5. otherwise → keep the previous state (dead band), i.e. heating continues until every
-   sensor has reached its target.
+1. reference sensor below **min** or cold → **heating** (`below_min` or `heating`), even
+   when an additional sensor is above max;
+2. reference sensor above **max** → **not heating** (`above_max`), even when an additional
+   sensor is below min;
+3. any additional sensor above **max** → **not heating** (`above_max`), including when
+   another additional sensor is cold or below min;
+4. any additional sensor below **min** or cold → **heating**;
+5. every available sensor reached → **idle**; otherwise keep the previous state in the
+   dead band. Unavailable sensors do not participate;
+6. still idle, another room heats on its own sensors and the reference sensor is below its
+   target → **heating** (`opportunistic`) until every sensor has reached its target, a
+   stop rule applies, or no other room calls for heat anymore.
 
 Heating: TRV setpoint = TRV temp + max(min boost 1 °C, gain × deficit). Idle: TRV setpoint =
 TRV temp − stop margin (2 °C). Off, open windows and vacation ignore min/max.
 
 Setpoints are rounded to 0.5 °C and clamped to 5–30 °C. Order of precedence: automation off →
-TRV unavailable → window open → room off → vacation → normal control. If no sensor has data,
+TRV unavailable → window open/recovery → room off → vacation → normal control. If no sensor has data,
 the TRV is set to the room target and a Repairs issue is raised.
 
 Sensors, including the TRV itself, that have not reported for 120 min (configurable) are
@@ -142,7 +156,8 @@ before an HA restart keeps blocking if it is still open.
    satisfied just before the reference sensor. Press **Apply**; you can still set any offset
    by hand. The TRV usually ends up at around −1.5 to −3.5 °C. Until its offset is applied,
    the TRV reading (offset 0) keeps the heating running longer than needed.
-3. Set **min/max** as hard limits, e.g. reference sensor min 18 / max 23.
+3. Set **min/max** as limits, e.g. reference sensor min 18 / max 23. The reference
+   sensor's heating request overrides an additional sensor's maximum.
 4. If rooms heat up too slowly, raise **gain** (Tuning section). If they overshoot, lower it
    or raise **hysteresis**.
 5. Use HA automations or a scheduler card to change the room climate target over the day.

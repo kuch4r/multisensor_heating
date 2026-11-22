@@ -155,6 +155,7 @@ def _no_sensor_input(state: ControlState) -> ControlInput:
                      target_temperature=7.0),
         sensors=[SensorInput("high", None)],
         window_open_since=None,
+        reference="high",
         state=state,
     )
 
@@ -254,6 +255,23 @@ async def test_l3_window_block_survives_restart(hass, calls, hass_storage):
         "heating resumed after restart with window open"
     )
     assert hass.states.get(eid(hass, "sensor", "control_reason", entry)).state == "window_open"
+
+
+async def test_closed_window_after_restart_does_not_block_next_opening(hass, calls, hass_storage):
+    hass_storage[STORE_KEY] = {
+        "version": 1,
+        "minor_version": 1,
+        "key": STORE_KEY,
+        "data": {
+            "settings": {},
+            "sensors": {},
+            "control_state": {"heating": False, "reason": "window_open", "last_write": 0.0},
+        },
+    }
+    entry = await setup_room(hass)
+    hass.states.async_set(WINDOW, "on", {"device_class": "window"})
+    await hass.async_block_till_done()
+    assert hass.states.get(eid(hass, "sensor", "control_reason", entry)).state == "heating"
 
 
 # ---- L7: options flow can clear all sensors ----------------------------------------

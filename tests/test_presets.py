@@ -70,6 +70,10 @@ async def test_window_holds_minimum_setpoint_and_resumes(hass, calls, freezer):
     freezer.tick(timedelta(seconds=2))
     async_fire_time_changed(hass, dt_util.utcnow())
     await hass.async_block_till_done()
+    assert setpoints(calls)[-1] == 5.0
+    freezer.tick(timedelta(seconds=340))
+    async_fire_time_changed(hass, dt_util.utcnow())
+    await hass.async_block_till_done()
     assert setpoints(calls)[-1] > 5.0
     assert not calls["hvac"]
 

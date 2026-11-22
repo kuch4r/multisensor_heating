@@ -6,10 +6,13 @@ below its own reading to stop.
 
 Heating rules, in priority order (Heat mode):
 
-1. any sensor below its min -> heat (wins over everything below);
-2. any sensor above its max -> do not heat;
-3. any sensor below its target (- half hysteresis) -> start heating, and keep heating
-   until every sensor has reached its target (+ half hysteresis).
+1. reference below its min or cold -> heat;
+2. reference above its max -> stop;
+3. any additional sensor above its max -> stop;
+4. any additional sensor below its min or cold -> heat;
+5. every available sensor reached -> stop; otherwise retain the previous state.
+6. still idle while another room heats on its own demand and the reference is below its
+   target -> heat opportunistically (normal curve, normal stop rules).
 
 Secondary sensors get offsets slightly below their typical difference to the main
 (reference) sensor, so normally they are satisfied just before it and the main sensor
@@ -28,10 +31,12 @@ from .const import (
     REASON_HEATING,
     REASON_IDLE,
     REASON_NO_SENSORS,
+    REASON_OPPORTUNISTIC,
     REASON_ROOM_OFF,
     REASON_TRV_UNAVAILABLE,
     REASON_VACATION,
     REASON_WINDOW_OPEN,
+    REASON_WINDOW_RECOVERY,
 )
 
 HVAC_OFF = "off"
@@ -98,6 +103,7 @@ class ControlState:
     last_write: float | None = None
     last_hvac_request: str | None = None
     last_hvac_write: float | None = None
+    window_grace_until: float | None = None
 
 
 @dataclass(frozen=True)
@@ -109,7 +115,10 @@ class ControlInput:
     trv: TrvState
     sensors: list[SensorInput]
     window_open_since: float | None
+    reference: str
     state: ControlState = field(default_factory=ControlState)
+    # Another room is heating on its own sensors (shared heat source).
+    primary_demand: bool = False
 
 
 @dataclass(frozen=True)
@@ -176,13 +185,21 @@ def _clamp(value: float, settings: RoomSettings) -> float:
     return min(max(value, settings.min_setpoint), settings.max_setpoint)
 
 
+def window_recovery_seconds(open_seconds: float) -> float:
+    if open_seconds < 60:
+        return 0.0
+    return 300.0 + (min(open_seconds, 1800) - 60) * 900 / 1740
+
+
 def decide(inp: ControlInput) -> Decision:
     """Compute the next action for a room."""
     s, trv, prev, now = inp.settings, inp.trv, inp.state, inp.now
     statuses = {sensor.key: evaluate_sensor(sensor, s) for sensor in inp.sensors}
-    window_blocked = (
+    window_open_blocked = (
         inp.window_open_since is not None and now - inp.window_open_since >= s.window_delay
     )
+    window_recovering = prev.window_grace_until is not None and now < prev.window_grace_until
+    window_blocked = window_open_blocked or window_recovering
 
     def result(reason: str, heating: bool, hvac: str | None, setpoint: float | None,
                deficit: float | None = None) -> Decision:
@@ -226,7 +243,8 @@ def decide(inp: ControlInput) -> Decision:
     # The TRV is never switched off while controlled: Salus TRV3RFs keep heating when
     # "switched off" by the Salus integrations (HoldType 7). Hold the minimum setpoint.
     if window_blocked:
-        return result(REASON_WINDOW_OPEN, False, HVAC_HEAT, s.min_setpoint)
+        reason = REASON_WINDOW_OPEN if window_open_blocked else REASON_WINDOW_RECOVERY
+        return result(reason, False, HVAC_HEAT, s.min_setpoint)
     if not s.hvac_on:
         return result(REASON_ROOM_OFF, False, HVAC_HEAT, s.min_setpoint)
     if s.away:
@@ -239,19 +257,32 @@ def decide(inp: ControlInput) -> Decision:
         hvac = HVAC_HEAT if trv.hvac_mode != HVAC_OFF or prev.last_hvac_request == HVAC_OFF else None
         return result(REASON_NO_SENSORS, False, hvac, _clamp(_round_down(s.target), s))
 
-    found = {st.status for st in available}
-    if STATUS_BELOW_MIN in found:
+    ref = statuses.get(inp.reference)
+    ref_status = ref.status if ref else STATUS_UNAVAILABLE
+    additional = {st.status for key, st in statuses.items() if key != inp.reference}
+    all_hot = all(st.status == STATUS_HOT for st in available)
+    if ref_status == STATUS_BELOW_MIN:
         heating, reason = True, REASON_BELOW_MIN
-    elif STATUS_ABOVE_MAX in found:
-        heating, reason = False, REASON_ABOVE_MAX
-    elif STATUS_COLD in found:
+    elif ref_status == STATUS_COLD:
         heating, reason = True, REASON_HEATING
-    elif found == {STATUS_HOT}:
+    elif ref_status == STATUS_ABOVE_MAX or STATUS_ABOVE_MAX in additional:
+        heating, reason = False, REASON_ABOVE_MAX
+    elif STATUS_BELOW_MIN in additional:
+        heating, reason = True, REASON_BELOW_MIN
+    elif STATUS_COLD in additional:
+        heating, reason = True, REASON_HEATING
+    elif all_hot:
         heating, reason = False, REASON_IDLE
     else:
         # Dead band: keep heating until every sensor has reached its target.
         heating = prev.heating and prev.reason in _SENSOR_REASONS
         reason = REASON_HEATING if heating else REASON_IDLE
+    if reason == REASON_IDLE and inp.primary_demand and not all_hot and (
+        prev.reason == REASON_OPPORTUNISTIC
+        or (ref is not None and ref.temperature is not None
+            and ref.temperature < ref.effective_target)
+    ):
+        heating, reason = True, REASON_OPPORTUNISTIC
 
     deficit = max(st.deficit for st in available if st.deficit is not None)
     trv_temp = trv.current_temperature

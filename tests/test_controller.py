@@ -2,6 +2,8 @@
 
 from dataclasses import replace
 
+import pytest
+
 from custom_components.multisensor_heating.controller import (
     ControlInput,
     ControlState,
@@ -9,13 +11,15 @@ from custom_components.multisensor_heating.controller import (
     SensorInput,
     TrvState,
     decide,
+    window_recovery_seconds,
 )
 
 SETTINGS = RoomSettings(target=21.0)
 TRV = TrvState(available=True, hvac_mode="heat", current_temperature=19.0, target_temperature=19.0)
 
 
-def run(sensors, *, settings=SETTINGS, trv=TRV, state=None, now=1000.0, window_since=None):
+def run(sensors, *, settings=SETTINGS, trv=TRV, state=None, now=1000.0, window_since=None,
+        reference="high", primary_demand=False):
     return decide(
         ControlInput(
             now=now,
@@ -24,8 +28,63 @@ def run(sensors, *, settings=SETTINGS, trv=TRV, state=None, now=1000.0, window_s
             sensors=sensors,
             window_open_since=window_since,
             state=state or ControlState(),
+            reference=reference,
+            primary_demand=primary_demand,
         )
     )
+
+
+# ---- F-21: opportunistic heating ----------------------------------------------------
+
+
+def test_opportunistic_heats_idle_room_below_target_with_normal_curve():
+    # Reference 20.9 is inside the dead band (ok) and below its 21 target.
+    sensors = [SensorInput("high", 20.9)]
+    assert run(sensors).reason == "idle"
+    d = run(sensors, primary_demand=True)
+    assert d.reason == "opportunistic"
+    assert d.heating
+    # Normal curve: deficit 0.1 * gain 2 < min boost 1 -> TRV 19 + 1 = 20.
+    assert d.set_temperature == 20.0
+
+
+def test_opportunistic_needs_reference_below_target():
+    sensors = [SensorInput("high", 21.1)]  # ok, but above target
+    assert run(sensors, primary_demand=True).reason == "idle"
+    assert run([SensorInput("high", None), SensorInput("trv", 20.9)],
+               primary_demand=True).reason == "idle"
+
+
+def test_opportunistic_respects_above_max():
+    sensors = [SensorInput("high", 20.9), SensorInput("trv", 25.0, max_temp=24.0)]
+    assert run(sensors, primary_demand=True).reason == "above_max"
+
+
+def test_opportunistic_continues_through_dead_band_and_stops_when_hot():
+    state = ControlState(heating=True, reason="opportunistic", last_write=900.0)
+    d = run([SensorInput("high", 21.1)], state=state, primary_demand=True)
+    assert d.reason == "opportunistic"
+    d = run([SensorInput("high", 21.3)], state=state, primary_demand=True)
+    assert d.reason == "idle"
+    assert not d.heating
+
+
+def test_opportunistic_stops_without_primary_demand_even_in_dead_band():
+    state = ControlState(heating=True, reason="opportunistic", last_write=900.0)
+    d = run([SensorInput("high", 20.9)], state=state)
+    assert d.reason == "idle"
+    assert not d.heating
+
+
+def test_own_demand_wins_over_opportunistic():
+    assert run([SensorInput("high", 20.0)], primary_demand=True).reason == "heating"
+
+
+def test_window_and_modes_override_opportunistic():
+    sensors = [SensorInput("high", 20.9)]
+    assert run(sensors, primary_demand=True, window_since=0.0).reason == "window_open"
+    assert run(sensors, primary_demand=True,
+               settings=replace(SETTINGS, hvac_on=False)).reason == "room_off"
 
 
 def test_cold_sensor_heats_proportionally():
@@ -103,6 +162,58 @@ def test_below_min_wins_over_above_max():
     assert d.heating
 
 
+def test_reference_cold_overrides_additional_above_max():
+    sensors = [SensorInput("trv", 19.0), SensorInput("high", 24.0, max_temp=23.0)]
+    d = run(sensors, reference="trv")
+    assert d.reason == "heating"
+    assert d.heating
+    assert d.sensors["high"].status == "above_max"
+
+
+def test_reference_cold_not_first_overrides_additional_above_max():
+    sensors = [SensorInput("trv", 25.0, max_temp=24.0), SensorInput("high", 20.0)]
+    d = run(sensors, reference="high")
+    assert d.reason == "heating"
+    assert d.heating
+
+
+def test_reference_below_min_overrides_additional_above_max():
+    sensors = [SensorInput("trv", 17.0, min_temp=18.0),
+               SensorInput("high", 24.0, max_temp=23.0)]
+    d = run(sensors, reference="trv")
+    assert d.reason == "below_min"
+    assert d.heating
+
+
+def test_reference_above_max_overrides_additional_below_min():
+    sensors = [SensorInput("trv", 25.0, max_temp=24.0),
+               SensorInput("high", 15.0, min_temp=16.0)]
+    d = run(sensors, reference="trv")
+    assert d.reason == "above_max"
+    assert not d.heating
+
+
+def test_additional_above_max_overrides_other_additional_cold_and_below_min():
+    for cold in (SensorInput("cold", 20.0), SensorInput("cold", 15.0, min_temp=16.0)):
+        for extras in (
+            [cold, SensorInput("hot", 25.0, max_temp=24.0)],
+            [SensorInput("hot", 25.0, max_temp=24.0), cold],
+        ):
+            d = run([SensorInput("ref", 21.5), *extras], reference="ref")
+            assert d.reason == "above_max"
+            assert not d.heating
+
+
+def test_unavailable_reference_uses_additional_sensors():
+    d = run(
+        [SensorInput("ref", None), SensorInput("cold", 19.0),
+         SensorInput("hot", 25.0, max_temp=24.0)],
+        reference="ref",
+    )
+    assert d.reason == "above_max"
+    assert not d.heating
+
+
 def test_heating_continues_to_target_after_min_recovered():
     # Back above min (16) but still below target: keep heating until the target is reached.
     state = ControlState(heating=True, reason="below_min", last_write=900.0)
@@ -171,6 +282,37 @@ def test_window_closed_resumes_heating():
     d = run([SensorInput("high", 19.0)], trv=trv, state=state)
     assert d.reason == "heating"
     assert d.set_temperature > 5.0
+
+
+@pytest.mark.parametrize(
+    ("duration", "recovery"),
+    [(59, 0), (60, 300), (930, 750), (1800, 1200), (3600, 1200)],
+)
+def test_window_recovery_duration(duration, recovery):
+    assert window_recovery_seconds(duration) == recovery
+
+
+def test_recovery_holds_minimum_until_deadline_and_resumes():
+    state = ControlState(reason="window_open", window_grace_until=1300)
+    sensors = [SensorInput("high", 19.0)]
+    d = run(sensors, state=state, now=1299)
+    assert d.reason == "window_recovery"
+    assert d.window_blocked
+    assert not d.heating
+    assert d.set_temperature == 5.0
+    resumed = run(sensors, state=d.state, now=1300, trv=replace(TRV, target_temperature=5.0))
+    assert resumed.reason == "heating"
+    assert not resumed.window_blocked
+    assert resumed.set_temperature > 5.0
+
+
+def test_recovery_overrides_vacation_but_not_disabled():
+    state = ControlState(window_grace_until=1300)
+    sensors = [SensorInput("high", 19.0)]
+    assert run(sensors, state=state, settings=replace(SETTINGS, away=True)).reason == (
+        "window_recovery"
+    )
+    assert run(sensors, state=state, settings=replace(SETTINGS, enabled=False)).reason == "disabled"
 
 
 def test_trv_switched_off_is_switched_back_to_heat():

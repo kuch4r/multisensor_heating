@@ -11,7 +11,7 @@ from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.multisensor_heating.const import DEFAULT_PARAMS, DOMAIN
 
-from .common import HIGH, LOCK, TRV, WINDOW, eid, set_trv
+from .common import HIGH, LOCK, TRV, WINDOW, WINDOW2, eid, set_trv, setup_room
 
 
 async def test_config_flow(hass: HomeAssistant, calls):
@@ -62,11 +62,144 @@ async def test_heats_when_high_sensor_cold(hass: HomeAssistant, entry, calls):
     assert hass.states.get(eid(hass, "sensor", "control_reason", entry)).state == "heating"
 
 
+async def test_configured_reference_cold_overrides_additional_above_max(hass, calls):
+    entry = await setup_room(hass, reference_sensor=TRV)
+    await hass.services.async_call(
+        "number", "set_value",
+        {"entity_id": eid(hass, "number", f"{HIGH}_max", entry), "value": 19.5},
+        blocking=True,
+    )
+    climate = hass.states.get(eid(hass, "climate", "climate", entry))
+    assert climate.attributes["reason"] == "heating"
+    assert climate.attributes["sensors"][HIGH]["status"] == "above_max"
+    assert hass.states.get(eid(hass, "binary_sensor", "heating", entry)).state == "on"
+
+
+async def test_configured_reference_above_max_overrides_additional_below_min(hass, entry):
+    await hass.services.async_call(
+        "number", "set_value",
+        {"entity_id": eid(hass, "number", f"{TRV}_min", entry), "value": 20.0},
+        blocking=True,
+    )
+    await hass.services.async_call(
+        "number", "set_value",
+        {"entity_id": eid(hass, "number", f"{HIGH}_max", entry), "value": 19.5},
+        blocking=True,
+    )
+    climate = hass.states.get(eid(hass, "climate", "climate", entry))
+    assert climate.attributes["reason"] == "above_max"
+    assert climate.attributes["sensors"][TRV]["status"] == "below_min"
+    assert hass.states.get(eid(hass, "binary_sensor", "heating", entry)).state == "off"
+
+
 async def settle(hass: HomeAssistant, freezer) -> None:
     """Let the 1 s state-change debounce run its trailing evaluation."""
     freezer.tick(timedelta(seconds=2))
     async_fire_time_changed(hass, dt_util.utcnow())
     await hass.async_block_till_done()
+
+
+async def advance(hass: HomeAssistant, freezer, seconds: float) -> None:
+    freezer.tick(timedelta(seconds=seconds))
+    async_fire_time_changed(hass, dt_util.utcnow())
+    await hass.async_block_till_done()
+
+
+async def test_short_window_open_does_not_trigger_recovery(hass, freezer, calls):
+    entry = await setup_room(hass)
+    hass.states.async_set(WINDOW, "on", {"device_class": "window"})
+    await hass.async_block_till_done()
+    await advance(hass, freezer, 30)
+    hass.states.async_set(WINDOW, "off", {"device_class": "window"})
+    await settle(hass, freezer)
+    assert hass.states.get(eid(hass, "sensor", "control_reason", entry)).state == "heating"
+
+
+async def test_window_recovery_stops_after_five_minutes(hass, freezer, calls):
+    entry = await setup_room(hass)
+    hass.states.async_set(WINDOW, "on", {"device_class": "window"})
+    await hass.async_block_till_done()
+    await advance(hass, freezer, 60)
+    hass.states.async_set(WINDOW, "off", {"device_class": "window"})
+    await settle(hass, freezer)
+    reason = eid(hass, "sensor", "control_reason", entry)
+    assert hass.states.get(reason).state == "window_recovery"
+    assert hass.states.get(eid(hass, "binary_sensor", "window_blocked", entry)).state == "on"
+    assert calls["temp"][-1].data["temperature"] == 5.0
+    await advance(hass, freezer, 297)
+    assert hass.states.get(reason).state == "window_recovery"
+    await advance(hass, freezer, 2)
+    assert hass.states.get(reason).state == "heating"
+    assert hass.states.get(eid(hass, "binary_sensor", "window_blocked", entry)).state == "off"
+
+
+async def test_overlapping_windows_count_as_one_open_interval(hass, freezer, calls):
+    hass.states.async_set(WINDOW2, "off", {"device_class": "window"})
+    entry = await setup_room(hass, window_sensors=[WINDOW, WINDOW2])
+    hass.states.async_set(WINDOW, "on", {"device_class": "window"})
+    await hass.async_block_till_done()
+    await advance(hass, freezer, 60)
+    hass.states.async_set(WINDOW2, "on", {"device_class": "window"})
+    await hass.async_block_till_done()
+    await advance(hass, freezer, 60)
+    hass.states.async_set(WINDOW, "off", {"device_class": "window"})
+    await hass.async_block_till_done()
+    await advance(hass, freezer, 60)
+    hass.states.async_set(WINDOW2, "off", {"device_class": "window"})
+    await settle(hass, freezer)
+    remaining = entry.runtime_data.control_state.window_grace_until - dt_util.utcnow().timestamp()
+    assert 360 < remaining < 365
+
+
+async def test_window_recovery_survives_reload(hass, freezer, calls):
+    entry = await setup_room(hass)
+    hass.states.async_set(WINDOW, "on", {"device_class": "window"})
+    await hass.async_block_till_done()
+    await advance(hass, freezer, 60)
+    hass.states.async_set(WINDOW, "off", {"device_class": "window"})
+    await settle(hass, freezer)
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(eid(hass, "sensor", "control_reason", entry)).state == "window_recovery"
+
+
+async def test_reopening_during_recovery_extends_deadline(hass, freezer, calls):
+    entry = await setup_room(hass)
+    hass.states.async_set(WINDOW, "on", {"device_class": "window"})
+    await hass.async_block_till_done()
+    await advance(hass, freezer, 60)
+    hass.states.async_set(WINDOW, "off", {"device_class": "window"})
+    await settle(hass, freezer)
+    first_deadline = entry.runtime_data.control_state.window_grace_until
+    await advance(hass, freezer, 100)
+    hass.states.async_set(WINDOW, "on", {"device_class": "window"})
+    await hass.async_block_till_done()
+    await advance(hass, freezer, 60)
+    hass.states.async_set(WINDOW, "off", {"device_class": "window"})
+    await settle(hass, freezer)
+    assert entry.runtime_data.control_state.window_grace_until > first_deadline
+    await advance(hass, freezer, 90)
+    assert hass.states.get(eid(hass, "sensor", "control_reason", entry)).state == (
+        "window_recovery"
+    )
+
+
+async def test_recovery_persists_without_new_trv_write(hass, freezer, calls):
+    entry = await setup_room(hass)
+    hass.states.async_set(WINDOW, "on", {"device_class": "window"})
+    await hass.async_block_till_done()
+    await advance(hass, freezer, 180)
+    set_trv(hass, target=5.0)
+    await hass.async_block_till_done()
+    writes = len(calls["temp"])
+    hass.states.async_set(WINDOW, "off", {"device_class": "window"})
+    await settle(hass, freezer)
+    assert len(calls["temp"]) == writes
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(eid(hass, "sensor", "control_reason", entry)).state == (
+        "window_recovery"
+    )
 
 
 async def test_stops_when_every_sensor_reached_target(hass: HomeAssistant, freezer, entry, calls):
@@ -110,6 +243,9 @@ async def test_window_open_blocks_after_delay(hass: HomeAssistant, entry, calls,
     set_trv(hass, target=5.0)
     hass.states.async_set(WINDOW, "off", {"device_class": "window"})
     await settle(hass, freezer)
+    assert hass.states.get(eid(hass, "sensor", "control_reason", entry)).state == "window_recovery"
+    assert calls["temp"][-1].data["temperature"] == 5.0
+    await advance(hass, freezer, 340)
     assert calls["temp"][-1].data["temperature"] > 5.0
     assert not calls["hvac"]
 

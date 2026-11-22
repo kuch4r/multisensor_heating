@@ -1,4 +1,4 @@
-import { _ as e, a as t, c as n, d as r, f as i, g as a, h as o, i as s, l as c, m as l, n as u, o as d, p as f, r as p, s as m, t as h, u as g } from "./multisensor-heating-api-jbnsX1sL.js";
+import { _ as e, a as t, c as n, d as r, f as i, g as a, h as o, i as s, l as c, m as l, n as u, o as d, p as f, r as p, s as m, t as h, u as g } from "./multisensor-heating-api-WzepAuA1.js";
 //#region node_modules/@lit/reactive-element/css-tag.js
 var _ = globalThis, v = _.ShadowRoot && (_.ShadyCSS === void 0 || _.ShadyCSS.nativeShadow) && "adoptedStyleSheets" in Document.prototype && "replace" in CSSStyleSheet.prototype, y = Symbol(), b = /* @__PURE__ */ new WeakMap(), ee = class {
 	constructor(e, t, n) {
@@ -1230,11 +1230,13 @@ var Be = class extends J {
     }
   `;
 }, He = 3e5, Ue = {
-	heating: "A sensor is below its target — heating until every sensor has reached its target.",
-	idle: "Every sensor has reached its target — the TRV setpoint is kept below the TRV's own reading.",
-	below_min: "A sensor is below its minimum — heating regardless of the other sensors.",
-	above_max: "A sensor is above its maximum — heating is blocked until it cools down.",
+	heating: "The reference or an additional sensor is cold — heating until targets are reached or a higher-priority limit stops it.",
+	idle: "No sensor is requesting heat — the TRV setpoint is kept below the TRV's own reading.",
+	below_min: "The reference or an additional sensor is below its minimum — heating according to sensor priority.",
+	above_max: "A sensor is above its maximum — heating is stopped until the higher-priority conditions change.",
+	opportunistic: "Another room is calling for heat and this room is below its target — heating along until the other room stops or targets are reached.",
 	window_open: "A window has been open longer than the delay — heating is stopped.",
+	window_recovery: "Windows are closed; the TRV stays at its minimum setpoint while room temperature stabilizes.",
 	room_off: "The room is switched off — heating is stopped.",
 	vacation: "Vacation mode — the TRV holds the vacation temperature, sensors are ignored.",
 	disabled: "Disabled — the room is not controlled; the TRV is left as it is.",
@@ -1413,8 +1415,8 @@ var Be = class extends J {
                 <th>Target</th>
                 <th>Status</th>
                 <th title="Added to the room target for this sensor">Offset</th>
-                <th title="Safety floor: always heat below this">Min</th>
-                <th title="Safety ceiling: always stop above this">Max</th>
+                <th title="Safety floor: requests heating subject to reference priority">Min</th>
+                <th title="Safety ceiling: stops heating unless the reference is cold">Max</th>
                 <th title="24 h average difference to the reference sensor">Suggested offset</th>
                 <th title="Difference to the reference sensor over the last 24 h">24 h Δ min…max</th>
               </tr>
@@ -1426,10 +1428,11 @@ var Be = class extends J {
         </div>
         <div class="hint">
           <b>How it works:</b> effective target = room target + offset. Heating starts when any
-          sensor is below its target and runs until every sensor has reached it. "Suggested offset"
+          sensor is below its target unless a higher-priority limit stops it. "Suggested offset"
           is the typical difference to the reference sensor minus 0.3 °C, so secondary sensors are
-          satisfied just before the reference sensor, which then drives the heating. Min and max are
-          hard limits: below min always heats, above max never heats (below min wins).
+          satisfied just before the reference sensor, which then drives the heating. Reference
+          cold/below-min overrides additional sensors; reference above-max stops heating. Among
+          additional sensors, above-max stops heating before cold or below-min can request it.
         </div>
       </div>
     `;
